@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # Val-Halla 主服务
+  valhalla:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: valhalla
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - onebot
+    networks:
+      - valhalla-net
+
+  # OneBot 实现 (go-cqhttp 示例)
+  onebot:
+    image: silicer/go-cqhttp:latest
+    container_name: valhalla-onebot
+    restart: unless-stopped
+    volumes:
+      - ./onebot-data:/data
+    ports:
+      - "5700:5700"
+      - "5800:5800"
+    networks:
+      - valhalla-net
+
+  # PostgreSQL 数据库 (可选,生产环境推荐)
+  postgres:
+    image: postgres:15-alpine
+    container_name: valhalla-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: valhalla
+      POSTGRES_USER: valhalla
+      POSTGRES_PASSWORD: your_secure_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - valhalla-net
+
+networks:
+  valhalla-net:
+    driver: bridge
+
+volumes:
+  postgres-data:

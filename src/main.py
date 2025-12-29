@@ -424,6 +424,27 @@ def export(group_id: int, export_format: str, output: str):
     asyncio.run(do_export())
 
 
+@cli.command()
+@click.option("--host", default="0.0.0.0", help="监听地址")
+@click.option("--port", default=8080, help="监听端口")
+def webui(host: str, port: int):
+    """启动 Web UI"""
+    import uvicorn
+    
+    console.print(f"\n[bold cyan]═══ Val-Halla Web UI ═══[/bold cyan]\n")
+    console.print(f"[green]✨ 启动 Web 界面...[/green]")
+    console.print(f"[blue]📍 地址: http://{host}:{port}[/blue]")
+    console.print(f"[yellow]💡 按 Ctrl+C 停止服务[/yellow]\n")
+    
+    uvicorn.run(
+        "src.web.app:app",
+        host=host,
+        port=port,
+        reload=False,
+        log_level="info"
+    )
+
+
 def main():
     """主入口"""
     cli()

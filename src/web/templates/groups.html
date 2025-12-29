@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+
+{% block title %}群组管理 - Val-Halla{% endblock %}
+{% block page_title %}群组管理{% endblock %}
+
+{% block content %}
+<div x-data="groupsPage()" x-init="init()">
+    <!-- 搜索和筛选栏 -->
+    <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
+        <div class="flex flex-col md:flex-row gap-4">
+            <div class="flex-1">
+                <div class="relative">
+                    <svg class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                    <input type="text" x-model="searchQuery" placeholder="搜索群组名称或群号..." 
+                           class="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button @click="loadGroups()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition flex items-center gap-2">
+                    <svg class="w-4 h-4" :class="{'animate-spin': loading}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    刷新
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 群组列表 -->
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+        <!-- 表头 -->
+        <div class="grid grid-cols-12 gap-4 px-6 py-3 bg-gray-50 border-b text-sm font-medium text-gray-500">
+            <div class="col-span-5">群组</div>
+            <div class="col-span-2 text-center">成员数</div>
+            <div class="col-span-2 text-center">最大成员</div>
+            <div class="col-span-3 text-right">操作</div>
+        </div>
+        
+        <!-- 加载中 -->
+        <template x-if="loading">
+            <div class="p-12 text-center">
+                <div class="spinner mx-auto border-gray-300 border-t-blue-600"></div>
+                <p class="text-gray-400 mt-4">加载群组列表...</p>
+            </div>
+        </template>
+        
+        <!-- 空状态 -->
+        <template x-if="!loading && filteredGroups.length === 0">
+            <div class="p-12 text-center">
+                <svg class="w-16 h-16 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
+                </svg>
+                <p class="text-gray-400 mt-4" x-text="searchQuery ? '没有找到匹配的群组' : '暂无群组数据'"></p>
+            </div>
+        </template>
+        
+        <!-- 群组列表 -->
+        <template x-if="!loading">
+            <div class="divide-y">
+                <template x-for="group in filteredGroups" :key="group.group_id">
+                    <div class="grid grid-cols-12 gap-4 px-6 py-4 items-center table-row">
+                        <!-- 群组信息 -->
+                        <div class="col-span-5 flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                                <span x-text="group.group_name?.charAt(0) || 'G'"></span>
+                            </div>
+                            <div class="min-w-0">
+                                <p class="font-medium text-gray-800 truncate" x-text="group.group_name"></p>
+                                <p class="text-sm text-gray-400" x-text="group.group_id"></p>
+                            </div>
+                        </div>
+                        
+                        <!-- 成员数 -->
+                        <div class="col-span-2 text-center">
+                            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-700"
+                                  x-text="group.member_count + ' 人'"></span>
+                        </div>
+                        
+                        <!-- 最大成员数 -->
+                        <div class="col-span-2 text-center text-gray-500" x-text="group.max_member_count || '-'"></div>
+                        
+                        <!-- 操作按钮 -->
+                        <div class="col-span-3 flex items-center justify-end gap-2">
+                            <button @click="viewGroup(group)" 
+                                    class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                    title="查看详情">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                </svg>
+                            </button>
+                            <button @click="backupGroup(group)" 
+                                    class="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition"
+                                    title="备份">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                </svg>
+                            </button>
+                            <button @click="exportGroup(group)" 
+                                    class="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition"
+                                    title="导出">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+    </div>
+    
+    <!-- 群组详情弹窗 -->
+    <div x-show="showDetailModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <div @click.away="showDetailModal = false" class="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <!-- 弹窗头部 -->
+            <div class="p-6 border-b flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-bold text-xl">
+                        <span x-text="selectedGroup?.group_name?.charAt(0) || 'G'"></span>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-semibold" x-text="selectedGroup?.group_name"></h3>
+                        <p class="text-gray-400" x-text="selectedGroup?.group_id"></p>
+                    </div>
+                </div>
+                <button @click="showDetailModal = false" class="p-2 hover:bg-gray-100 rounded-lg transition">
+                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- 统计卡片 -->
+            <div class="p-6 border-b flex-shrink-0">
+                <div class="grid grid-cols-4 gap-4">
+                    <div class="bg-gray-50 rounded-lg p-4 text-center">
+                        <p class="text-2xl font-bold text-gray-800" x-text="groupDetail?.stats?.total || 0"></p>
+                        <p class="text-sm text-gray-500">总成员</p>
+                    </div>
+                    <div class="bg-red-50 rounded-lg p-4 text-center">
+                        <p class="text-2xl font-bold text-red-600" x-text="groupDetail?.stats?.owner || 0"></p>
+                        <p class="text-sm text-gray-500">群主</p>
+                    </div>
+                    <div class="bg-orange-50 rounded-lg p-4 text-center">
+                        <p class="text-2xl font-bold text-orange-600" x-text="groupDetail?.stats?.admin || 0"></p>
+                        <p class="text-sm text-gray-500">管理员</p>
+                    </div>
+                    <div class="bg-blue-50 rounded-lg p-4 text-center">
+                        <p class="text-2xl font-bold text-blue-600" x-text="groupDetail?.stats?.member || 0"></p>
+                        <p class="text-sm text-gray-500">普通成员</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 成员列表 -->
+            <div class="flex-1 overflow-auto">
+                <div class="p-4 border-b bg-gray-50 sticky top-0">
+                    <input type="text" x-model="memberSearch" placeholder="搜索成员..."
+                           class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <template x-if="loadingDetail">
+                    <div class="p-12 text-center">
+                        <div class="spinner mx-auto border-gray-300 border-t-blue-600"></div>
+                        <p class="text-gray-400 mt-4">加载成员列表...</p>
+                    </div>
+                </template>
+                
+                <template x-if="!loadingDetail">
+                    <div class="divide-y">
+                        <template x-for="member in filteredMembers" :key="member.user_id">
+                            <div class="flex items-center gap-4 px-6 py-3 hover:bg-gray-50">
+                                <div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-medium">
+                                    <span x-text="(member.card || member.nickname)?.charAt(0) || 'U'"></span>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-2">
+                                        <p class="font-medium text-gray-800 truncate" x-text="member.card || member.nickname"></p>
+                                        <span x-show="member.role === 'owner'" class="px-2 py-0.5 text-xs bg-red-100 text-red-600 rounded">群主</span>
+                                        <span x-show="member.role === 'admin'" class="px-2 py-0.5 text-xs bg-orange-100 text-orange-600 rounded">管理</span>
+                                    </div>
+                                    <p class="text-sm text-gray-400" x-text="member.user_id"></p>
+                                </div>
+                                <div class="text-right text-sm text-gray-400">
+                                    <p x-text="member.title || ''"></p>
+                                    <p x-text="'Lv.' + (member.level || 0)"></p>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+            
+            <!-- 弹窗底部 -->
+            <div class="p-4 border-t bg-gray-50 flex justify-end gap-3 flex-shrink-0">
+                <button @click="backupGroup(selectedGroup)" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    备份此群
+                </button>
+                <button @click="exportGroup(selectedGroup)" class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    导出数据
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function groupsPage() {
+    return {
+        groups: [],
+        loading: true,
+        searchQuery: '',
+        showDetailModal: false,
+        selectedGroup: null,
+        groupDetail: null,
+        loadingDetail: false,
+        memberSearch: '',
+        
+        get filteredGroups() {
+            if (!this.searchQuery) return this.groups;
+            const query = this.searchQuery.toLowerCase();
+            return this.groups.filter(g => 
+                g.group_name?.toLowerCase().includes(query) ||
+                String(g.group_id).includes(query)
+            );
+        },
+        
+        get filteredMembers() {
+            const members = this.groupDetail?.members || [];
+            if (!this.memberSearch) return members;
+            const query = this.memberSearch.toLowerCase();
+            return members.filter(m =>
+                m.nickname?.toLowerCase().includes(query) ||
+                m.card?.toLowerCase().includes(query) ||
+                String(m.user_id).includes(query)
+            );
+        },
+        
+        async init() {
+            await this.loadGroups();
+            
+            // 检查URL参数
+            const params = new URLSearchParams(window.location.search);
+            const groupId = params.get('id');
+            if (groupId) {
+                const group = this.groups.find(g => g.group_id == groupId);
+                if (group) {
+                    await this.viewGroup(group);
+                }
+            }
+        },
+        
+        async loadGroups() {
+            this.loading = true;
+            try {
+                const res = await fetch('/api/groups');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.groups = data.groups || [];
+                }
+            } catch (e) {
+                console.error('加载群组失败:', e);
+                this.$root.showToast('加载群组失败', 'error');
+            }
+            this.loading = false;
+        },
+        
+        async viewGroup(group) {
+            this.selectedGroup = group;
+            this.showDetailModal = true;
+            this.loadingDetail = true;
+            this.memberSearch = '';
+            
+            try {
+                const res = await fetch(`/api/groups/${group.group_id}`);
+                if (res.ok) {
+                    this.groupDetail = await res.json();
+                }
+            } catch (e) {
+                console.error('加载群详情失败:', e);
+            }
+            this.loadingDetail = false;
+        },
+        
+        async backupGroup(group) {
+            this.$root.showToast('正在备份 ' + group.group_name + '...', 'info');
+            
+            try {
+                const res = await fetch('/api/backup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group_id: group.group_id, backup_type: 'full' })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    this.$root.showToast('备份成功！共 ' + data.member_count + ' 人', 'success');
+                } else {
+                    const err = await res.json();
+                    this.$root.showToast('备份失败: ' + err.detail, 'error');
+                }
+            } catch (e) {
+                this.$root.showToast('备份失败: ' + e.message, 'error');
+            }
+        },
+        
+        exportGroup(group) {
+            window.open(`/api/export/${group.group_id}?format=json`, '_blank');
+            this.$root.showToast('正在下载导出文件...', 'info');
+        }
+    }
+}
+</script>
+{% endblock %}

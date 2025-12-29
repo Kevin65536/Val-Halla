@@ -318,25 +318,25 @@ class BackupManager:
     
     async def get_backup_history(
         self,
-        group_id: int,
+        group_id: Optional[int] = None,
         limit: int = 10
     ) -> List[Backup]:
         """
         获取备份历史
         
         Args:
-            group_id: 群号
+            group_id: 群号，如果为None则返回所有群组的备份
             limit: 返回数量限制
             
         Returns:
             备份记录列表
         """
         async with db_manager.get_async_session() as session:
+            query = select(Backup)
+            if group_id is not None:
+                query = query.where(Backup.group_id == group_id)
             result = await session.execute(
-                select(Backup)
-                .where(Backup.group_id == group_id)
-                .order_by(Backup.created_at.desc())
-                .limit(limit)
+                query.order_by(Backup.created_at.desc()).limit(limit)
             )
             return list(result.scalars().all())
     

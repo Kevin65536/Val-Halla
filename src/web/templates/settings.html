@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}系统设置 - Val-Halla{% endblock %}
+{% block page_title %}系统设置{% endblock %}
+
+{% block content %}
+<div x-data="settingsPage()" x-init="init()">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- OneBot 连接设置 -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="p-4 border-b bg-gray-50">
+                <h3 class="font-semibold text-gray-800 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+                    </svg>
+                    OneBot 连接
+                </h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                        <p class="font-medium text-gray-800">连接状态</p>
+                        <p class="text-sm text-gray-500" x-text="status.config?.host + ':' + status.config?.port"></p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-3 h-3 rounded-full" :class="status.connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></span>
+                        <span :class="status.connected ? 'text-green-600' : 'text-red-600'" x-text="status.connected ? '已连接' : '未连接'"></span>
+                    </div>
+                </div>
+                
+                <div x-show="status.connected" class="space-y-3">
+                    <div class="flex justify-between py-2 border-b">
+                        <span class="text-gray-500">Bot 昵称</span>
+                        <span class="font-medium" x-text="status.login_info?.nickname || '-'"></span>
+                    </div>
+                    <div class="flex justify-between py-2 border-b">
+                        <span class="text-gray-500">Bot QQ</span>
+                        <span class="font-medium" x-text="status.login_info?.user_id || '-'"></span>
+                    </div>
+                    <div class="flex justify-between py-2 border-b">
+                        <span class="text-gray-500">实现</span>
+                        <span class="font-medium" x-text="status.version_info?.app_name || '-'"></span>
+                    </div>
+                    <div class="flex justify-between py-2">
+                        <span class="text-gray-500">版本</span>
+                        <span class="font-medium" x-text="status.version_info?.app_version || '-'"></span>
+                    </div>
+                </div>
+                
+                <button @click="testConnection()" :disabled="testing"
+                        class="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                    <svg x-show="testing" class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    <span x-text="testing ? '测试中...' : '测试连接'"></span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- 系统信息 -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="p-4 border-b bg-gray-50">
+                <h3 class="font-semibold text-gray-800 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+                    </svg>
+                    系统信息
+                </h3>
+            </div>
+            <div class="p-6 space-y-3">
+                <div class="flex justify-between py-2 border-b">
+                    <span class="text-gray-500">应用名称</span>
+                    <span class="font-medium">Val-Halla</span>
+                </div>
+                <div class="flex justify-between py-2 border-b">
+                    <span class="text-gray-500">版本</span>
+                    <span class="font-medium">1.0.0</span>
+                </div>
+                <div class="flex justify-between py-2 border-b">
+                    <span class="text-gray-500">数据库</span>
+                    <span class="font-medium">SQLite</span>
+                </div>
+                <div class="flex justify-between py-2">
+                    <span class="text-gray-500">备份目录</span>
+                    <span class="font-medium font-mono text-sm">data/backups/</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 快捷操作 -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="p-4 border-b bg-gray-50">
+                <h3 class="font-semibold text-gray-800 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                    快捷操作
+                </h3>
+            </div>
+            <div class="p-6 space-y-3">
+                <button @click="backupAllGroups()" :disabled="backingUp"
+                        class="w-full py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    <span x-text="backingUp ? '备份中 (' + backupProgress + ')...' : '备份所有群组'"></span>
+                </button>
+                
+                <a href="/api/export/all" target="_blank"
+                   class="w-full py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    导出所有数据
+                </a>
+            </div>
+        </div>
+        
+        <!-- 关于 -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="p-4 border-b bg-gray-50">
+                <h3 class="font-semibold text-gray-800 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    关于
+                </h3>
+            </div>
+            <div class="p-6">
+                <div class="text-center">
+                    <div class="w-20 h-20 mx-auto mb-4 rounded-2xl gradient-bg flex items-center justify-center">
+                        <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                        </svg>
+                    </div>
+                    <h4 class="text-xl font-bold text-gray-800">Val-Halla</h4>
+                    <p class="text-gray-500 mt-1">QQ群成员自动备份与一键重建工具</p>
+                    <div class="mt-4 flex justify-center gap-4">
+                        <a href="https://github.com/Kevin65536/Val-Halla" target="_blank" 
+                           class="text-gray-400 hover:text-gray-600 transition">
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function settingsPage() {
+    return {
+        testing: false,
+        backingUp: false,
+        backupProgress: '',
+        
+        async init() {
+            // 初始化时状态已由全局 app() 加载
+        },
+        
+        async testConnection() {
+            this.testing = true;
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                this.$root.status = data;
+                
+                if (data.connected) {
+                    this.$root.showToast('连接成功！', 'success');
+                } else {
+                    this.$root.showToast('连接失败', 'error');
+                }
+            } catch (e) {
+                this.$root.showToast('连接测试失败: ' + e.message, 'error');
+            }
+            this.testing = false;
+        },
+        
+        async backupAllGroups() {
+            this.backingUp = true;
+            this.backupProgress = '获取群列表...';
+            
+            try {
+                // 获取群列表
+                const groupsRes = await fetch('/api/groups');
+                const groupsData = await groupsRes.json();
+                const groups = groupsData.groups || [];
+                
+                let success = 0;
+                let failed = 0;
+                
+                for (let i = 0; i < groups.length; i++) {
+                    const group = groups[i];
+                    this.backupProgress = `${i + 1}/${groups.length}`;
+                    
+                    try {
+                        await fetch('/api/backup', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ group_id: group.group_id, backup_type: 'full' })
+                        });
+                        success++;
+                    } catch (e) {
+                        failed++;
+                    }
+                    
+                    // 添加延迟避免请求过快
+                    await new Promise(r => setTimeout(r, 500));
+                }
+                
+                this.$root.showToast(`备份完成！成功 ${success} 个，失败 ${failed} 个`, 'success');
+            } catch (e) {
+                this.$root.showToast('备份失败: ' + e.message, 'error');
+            }
+            
+            this.backingUp = false;
+        }
+    }
+}
+</script>
+{% endblock %}

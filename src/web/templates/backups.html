@@ -1,0 +1,423 @@
+{% extends "base.html" %}
+
+{% block title %}备份历史 - Val-Halla{% endblock %}
+{% block page_title %}备份历史{% endblock %}
+
+{% block content %}
+<div x-data="backupsPage()" x-init="init()">
+    <!-- 筛选栏 -->
+    <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
+        <div class="flex flex-col md:flex-row gap-4">
+            <div class="flex-1">
+                <select x-model="selectedGroup" @change="loadBackups()" 
+                        class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">全部群组</option>
+                    <template x-for="group in groups" :key="group.group_id">
+                        <option :value="group.group_id" x-text="group.group_name + ' (' + group.group_id + ')'"></option>
+                    </template>
+                </select>
+            </div>
+            <div class="flex gap-2">
+                <button @click="loadBackups()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition flex items-center gap-2">
+                    <svg class="w-4 h-4" :class="{'animate-spin': loading}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    刷新
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 备份列表 -->
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+        <!-- 表头 -->
+        <div class="grid grid-cols-12 gap-4 px-6 py-3 bg-gray-50 border-b text-sm font-medium text-gray-500">
+            <div class="col-span-1">ID</div>
+            <div class="col-span-2">群号</div>
+            <div class="col-span-2">类型</div>
+            <div class="col-span-2 text-center">成员数</div>
+            <div class="col-span-2 text-center">变动</div>
+            <div class="col-span-2">时间</div>
+            <div class="col-span-1 text-right">操作</div>
+        </div>
+        
+        <!-- 加载中 -->
+        <template x-if="loading">
+            <div class="p-12 text-center">
+                <div class="spinner mx-auto border-gray-300 border-t-blue-600"></div>
+                <p class="text-gray-400 mt-4">加载备份记录...</p>
+            </div>
+        </template>
+        
+        <!-- 空状态 -->
+        <template x-if="!loading && backups.length === 0">
+            <div class="p-12 text-center">
+                <svg class="w-16 h-16 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2"/>
+                </svg>
+                <p class="text-gray-400 mt-4">暂无备份记录</p>
+                <a href="/groups" class="inline-block mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">
+                    去创建备份
+                </a>
+            </div>
+        </template>
+        
+        <!-- 备份列表 -->
+        <template x-if="!loading">
+            <div class="divide-y">
+                <template x-for="backup in backups" :key="backup.id">
+                    <div class="grid grid-cols-12 gap-4 px-6 py-4 items-center table-row">
+                        <!-- ID -->
+                        <div class="col-span-1 font-mono text-gray-500" x-text="'#' + backup.id"></div>
+                        
+                        <!-- 群号 -->
+                        <div class="col-span-2">
+                            <p class="font-medium text-gray-800" x-text="backup.group_id"></p>
+                        </div>
+                        
+                        <!-- 类型 -->
+                        <div class="col-span-2">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                                  :class="{
+                                      'bg-blue-100 text-blue-700': backup.backup_type === 'full',
+                                      'bg-green-100 text-green-700': backup.backup_type === 'incremental',
+                                      'bg-purple-100 text-purple-700': backup.backup_type === 'auto'
+                                  }"
+                                  x-text="backup.backup_type === 'full' ? '完整备份' : (backup.backup_type === 'incremental' ? '增量备份' : '自动备份')"></span>
+                            <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs"
+                                  :class="backup.status === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'"
+                                  x-text="backup.status === 'success' ? '成功' : '失败'"></span>
+                        </div>
+                        
+                        <!-- 成员数 -->
+                        <div class="col-span-2 text-center">
+                            <span class="text-gray-800 font-medium" x-text="backup.member_count"></span>
+                            <span class="text-gray-400"> 人</span>
+                        </div>
+                        
+                        <!-- 变动 -->
+                        <div class="col-span-2 text-center">
+                            <span class="text-green-600" x-text="'+' + (backup.new_members || 0)"></span>
+                            <span class="text-gray-400 mx-1">/</span>
+                            <span class="text-red-600" x-text="'-' + (backup.left_members || 0)"></span>
+                        </div>
+                        
+                        <!-- 时间 -->
+                        <div class="col-span-2 text-sm text-gray-500" x-text="formatTime(backup.created_at)"></div>
+                        
+                        <!-- 操作 -->
+                        <div class="col-span-1 flex items-center justify-end gap-1">
+                            <button @click="viewBackup(backup)" 
+                                    class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                    title="查看详情">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                </svg>
+                            </button>
+                            <button @click="confirmDelete(backup)" 
+                                    class="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                                    title="删除">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+    </div>
+    
+    <!-- 备份详情弹窗 -->
+    <div x-show="showDetailModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <div @click.away="showDetailModal = false" class="bg-white rounded-xl shadow-xl w-full max-w-2xl">
+            <div class="p-6 border-b flex items-center justify-between">
+                <h3 class="text-lg font-semibold">备份详情 #<span x-text="selectedBackup?.id"></span></h3>
+                <button @click="showDetailModal = false" class="p-2 hover:bg-gray-100 rounded-lg transition">
+                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="p-6">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-500">群号</p>
+                        <p class="text-lg font-medium" x-text="selectedBackup?.group_id"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-500">备份类型</p>
+                        <p class="text-lg font-medium" x-text="selectedBackup?.backup_type"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-500">成员数量</p>
+                        <p class="text-lg font-medium" x-text="selectedBackup?.member_count + ' 人'"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-500">成员变动</p>
+                        <p class="text-lg font-medium">
+                            <span class="text-green-600">+<span x-text="selectedBackup?.new_members || 0"></span></span>
+                            <span class="text-gray-400 mx-2">/</span>
+                            <span class="text-red-600">-<span x-text="selectedBackup?.left_members || 0"></span></span>
+                        </p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-500">文件大小</p>
+                        <p class="text-lg font-medium" x-text="formatBytes(selectedBackup?.file_size)"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-500">创建时间</p>
+                        <p class="text-lg font-medium" x-text="formatTime(selectedBackup?.created_at)"></p>
+                    </div>
+                </div>
+                
+                <div class="mt-4 bg-gray-50 rounded-lg p-4">
+                    <p class="text-sm text-gray-500">文件路径</p>
+                    <p class="text-sm font-mono text-gray-600 break-all" x-text="selectedBackup?.file_path"></p>
+                </div>
+            </div>
+            
+            <div class="p-4 border-t bg-gray-50 flex justify-end gap-3">
+                <button @click="rebuildFromBackup(selectedBackup)" 
+                        class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    从此备份重建
+                </button>
+                <button @click="showDetailModal = false" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">
+                    关闭
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 删除确认弹窗 -->
+    <div x-show="showDeleteModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <div @click.away="showDeleteModal = false" class="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div class="p-6 text-center">
+                <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+                    <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-800">确认删除备份？</h3>
+                <p class="text-gray-500 mt-2">备份 #<span x-text="backupToDelete?.id"></span> 将被永久删除，此操作无法撤销。</p>
+            </div>
+            <div class="p-4 border-t bg-gray-50 flex justify-center gap-3">
+                <button @click="showDeleteModal = false" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">
+                    取消
+                </button>
+                <button @click="deleteBackup()" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
+                    确认删除
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 重建弹窗 -->
+    <div x-show="showRebuildModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <div @click.away="showRebuildModal = false" class="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div class="p-6 border-b">
+                <h3 class="text-lg font-semibold">群重建配置</h3>
+                <p class="text-sm text-gray-500 mt-1">从备份 #<span x-text="rebuildBackup?.id"></span> 重建群 <span x-text="rebuildBackup?.group_id"></span></p>
+            </div>
+            
+            <div class="p-6 space-y-4">
+                <label class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition">
+                    <input type="checkbox" x-model="rebuildOptions.restore_cards" class="w-5 h-5 text-blue-600 rounded">
+                    <div>
+                        <p class="font-medium text-gray-800">恢复群名片</p>
+                        <p class="text-sm text-gray-500">将成员的群名片恢复为备份时的状态</p>
+                    </div>
+                </label>
+                
+                <label class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition">
+                    <input type="checkbox" x-model="rebuildOptions.restore_titles" class="w-5 h-5 text-blue-600 rounded">
+                    <div>
+                        <p class="font-medium text-gray-800">恢复专属头衔</p>
+                        <p class="text-sm text-gray-500">将成员的专属头衔恢复为备份时的状态</p>
+                    </div>
+                </label>
+                
+                <label class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition">
+                    <input type="checkbox" x-model="rebuildOptions.restore_admins" class="w-5 h-5 text-blue-600 rounded">
+                    <div>
+                        <p class="font-medium text-gray-800">恢复管理员</p>
+                        <p class="text-sm text-gray-500">将管理员权限恢复为备份时的状态（需要群主权限）</p>
+                    </div>
+                </label>
+                
+                <label class="flex items-center gap-3 p-3 bg-yellow-50 rounded-lg cursor-pointer hover:bg-yellow-100 transition border border-yellow-200">
+                    <input type="checkbox" x-model="rebuildOptions.dry_run" class="w-5 h-5 text-yellow-600 rounded">
+                    <div>
+                        <p class="font-medium text-yellow-800">模拟运行</p>
+                        <p class="text-sm text-yellow-600">仅预览变更，不实际执行操作</p>
+                    </div>
+                </label>
+            </div>
+            
+            <div class="p-4 border-t bg-gray-50 flex justify-end gap-3">
+                <button @click="showRebuildModal = false" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">
+                    取消
+                </button>
+                <button @click="executeRebuild()" :disabled="rebuilding"
+                        class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition flex items-center gap-2 disabled:opacity-50">
+                    <svg x-show="rebuilding" class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    <span x-text="rebuilding ? '执行中...' : (rebuildOptions.dry_run ? '预览变更' : '开始重建')"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function backupsPage() {
+    return {
+        groups: [],
+        backups: [],
+        loading: true,
+        selectedGroup: '',
+        showDetailModal: false,
+        selectedBackup: null,
+        showDeleteModal: false,
+        backupToDelete: null,
+        showRebuildModal: false,
+        rebuildBackup: null,
+        rebuilding: false,
+        rebuildOptions: {
+            restore_cards: true,
+            restore_titles: true,
+            restore_admins: false,
+            dry_run: true
+        },
+        
+        async init() {
+            await Promise.all([
+                this.loadGroups(),
+                this.loadBackups()
+            ]);
+        },
+        
+        async loadGroups() {
+            try {
+                const res = await fetch('/api/groups');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.groups = data.groups || [];
+                }
+            } catch (e) {
+                console.error('加载群组失败:', e);
+            }
+        },
+        
+        async loadBackups() {
+            this.loading = true;
+            try {
+                let url = '/api/backups?limit=100';
+                if (this.selectedGroup) {
+                    url += '&group_id=' + this.selectedGroup;
+                }
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.backups = data.backups || [];
+                }
+            } catch (e) {
+                console.error('加载备份失败:', e);
+            }
+            this.loading = false;
+        },
+        
+        viewBackup(backup) {
+            this.selectedBackup = backup;
+            this.showDetailModal = true;
+        },
+        
+        confirmDelete(backup) {
+            this.backupToDelete = backup;
+            this.showDeleteModal = true;
+        },
+        
+        async deleteBackup() {
+            try {
+                const res = await fetch(`/api/backups/${this.backupToDelete.id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (res.ok) {
+                    this.$root.showToast('备份已删除', 'success');
+                    await this.loadBackups();
+                } else {
+                    const err = await res.json();
+                    this.$root.showToast('删除失败: ' + err.detail, 'error');
+                }
+            } catch (e) {
+                this.$root.showToast('删除失败: ' + e.message, 'error');
+            }
+            this.showDeleteModal = false;
+        },
+        
+        rebuildFromBackup(backup) {
+            this.rebuildBackup = backup;
+            this.showDetailModal = false;
+            this.showRebuildModal = true;
+        },
+        
+        async executeRebuild() {
+            this.rebuilding = true;
+            
+            try {
+                const res = await fetch('/api/rebuild', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        group_id: this.rebuildBackup.group_id,
+                        backup_id: this.rebuildBackup.id,
+                        ...this.rebuildOptions
+                    })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    if (this.rebuildOptions.dry_run) {
+                        this.$root.showToast('预览完成！将修改 ' + (data.changes?.length || 0) + ' 项', 'info');
+                    } else {
+                        this.$root.showToast('重建完成！已修改 ' + (data.success_count || 0) + ' 项', 'success');
+                    }
+                } else {
+                    const err = await res.json();
+                    this.$root.showToast('重建失败: ' + err.detail, 'error');
+                }
+            } catch (e) {
+                this.$root.showToast('重建失败: ' + e.message, 'error');
+            }
+            
+            this.rebuilding = false;
+            this.showRebuildModal = false;
+        },
+        
+        formatTime(timestamp) {
+            if (!timestamp) return '-';
+            const date = new Date(timestamp);
+            return date.toLocaleString('zh-CN');
+        },
+        
+        formatBytes(bytes) {
+            if (!bytes) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    }
+}
+</script>
+{% endblock %}

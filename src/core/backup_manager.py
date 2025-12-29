@@ -455,3 +455,41 @@ class BackupManager:
             
             await session.commit()
             logger.info(f"清理了 {len(backups) - keep_count} 个旧备份")
+    
+    async def delete_backup(self, backup_id: int):
+        """
+        删除指定的备份
+        
+        Args:
+            backup_id: 备份ID
+        """
+        async with db_manager.get_async_session() as session:
+            # 查询备份记录
+            result = await session.execute(
+                select(Backup).where(Backup.id == backup_id)
+            )
+            backup = result.scalar_one_or_none()
+            
+            if not backup:
+                raise ValueError(f"备份不存在: {backup_id}")
+            
+            # 删除备份文件
+            if backup.file_path:
+                file_path = Path(backup.file_path)
+                if file_path.exists():
+                    try:
+                        file_path.unlink()
+                        logger.info(f"已删除备份文件: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"删除备份文件失败: {file_path} - {str(e)}")
+            
+            # 删除数据库记录中的备份成员
+            await session.execute(
+                delete(BackupMember).where(BackupMember.backup_id == backup_id)
+            )
+            
+            # 删除数据库中的备份记录
+            await session.delete(backup)
+            await session.commit()
+            
+            logger.info(f"备份已删除: {backup_id}")

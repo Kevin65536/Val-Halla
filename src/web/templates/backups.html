@@ -353,16 +353,16 @@ function backupsPage() {
                 });
                 
                 if (res.ok) {
-                    this.$root.showToast('备份已删除', 'success');
+                    window.showToast('备份已删除', 'success');
+                    this.showDeleteModal = false;
                     await this.loadBackups();
                 } else {
                     const err = await res.json();
-                    this.$root.showToast('删除失败: ' + err.detail, 'error');
+                    window.showToast('删除失败: ' + err.detail, 'error');
                 }
             } catch (e) {
-                this.$root.showToast('删除失败: ' + e.message, 'error');
+                window.showToast('删除失败: ' + e.message, 'error');
             }
-            this.showDeleteModal = false;
         },
         
         rebuildFromBackup(backup) {
@@ -388,16 +388,16 @@ function backupsPage() {
                 if (res.ok) {
                     const data = await res.json();
                     if (this.rebuildOptions.dry_run) {
-                        this.$root.showToast('预览完成！将修改 ' + (data.changes?.length || 0) + ' 项', 'info');
+                        window.showToast('预览完成！将修改 ' + (data.changes?.length || 0) + ' 项', 'info');
                     } else {
-                        this.$root.showToast('重建完成！已修改 ' + (data.success_count || 0) + ' 项', 'success');
+                        window.showToast('重建完成！已修改 ' + (data.success_count || 0) + ' 项', 'success');
                     }
                 } else {
                     const err = await res.json();
-                    this.$root.showToast('重建失败: ' + err.detail, 'error');
+                    window.showToast('重建失败: ' + err.detail, 'error');
                 }
             } catch (e) {
-                this.$root.showToast('重建失败: ' + e.message, 'error');
+                window.showToast('重建失败: ' + e.message, 'error');
             }
             
             this.rebuilding = false;

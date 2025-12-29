@@ -18,6 +18,7 @@ from src.api.onebot import OneBotAPI
 from src.core.backup_manager import BackupManager
 from src.core.rebuild_manager import RebuildManager
 from src.models.database import DatabaseManager
+from src.models.backup import BackupType
 from src.utils.logger import get_logger, setup_logger
 from src.utils.config import config_manager
 
@@ -271,17 +272,20 @@ async def api_backup(req: BackupRequest, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=503, detail="OneBot 未连接")
     
     try:
-        result = await state.backup_manager.backup_group(
+        # 将字符串转换为 BackupType 枚举
+        backup_type = BackupType(req.backup_type) if req.backup_type else BackupType.FULL
+        
+        backup = await state.backup_manager.backup_group(
             req.group_id,
-            backup_type=req.backup_type
+            backup_type=backup_type
         )
         return {
             "success": True,
-            "backup_id": result.get("backup_id"),
-            "member_count": result.get("member_count"),
-            "new_members": result.get("new_members"),
-            "left_members": result.get("left_members"),
-            "file_path": result.get("file_path")
+            "backup_id": backup.id,
+            "member_count": backup.member_count,
+            "new_members": backup.new_members,
+            "left_members": backup.left_members,
+            "file_path": backup.file_path
         }
     except Exception as e:
         logger.error(f"备份失败: {e}")

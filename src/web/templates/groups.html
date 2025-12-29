@@ -272,7 +272,7 @@ function groupsPage() {
                 }
             } catch (e) {
                 console.error('加载群组失败:', e);
-                this.$root.showToast('加载群组失败', 'error');
+                window.showToast('加载群组失败', 'error');
             }
             this.loading = false;
         },
@@ -295,7 +295,7 @@ function groupsPage() {
         },
         
         async backupGroup(group) {
-            this.$root.showToast('正在备份 ' + group.group_name + '...', 'info');
+            window.showToast('正在备份 ' + group.group_name + '...', 'info');
             
             try {
                 const res = await fetch('/api/backup', {
@@ -306,19 +306,19 @@ function groupsPage() {
                 
                 if (res.ok) {
                     const data = await res.json();
-                    this.$root.showToast('备份成功！共 ' + data.member_count + ' 人', 'success');
+                    window.showToast('备份成功！共 ' + data.member_count + ' 人', 'success');
                 } else {
                     const err = await res.json();
-                    this.$root.showToast('备份失败: ' + err.detail, 'error');
+                    window.showToast('备份失败: ' + err.detail, 'error');
                 }
             } catch (e) {
-                this.$root.showToast('备份失败: ' + e.message, 'error');
+                window.showToast('备份失败: ' + e.message, 'error');
             }
         },
         
         exportGroup(group) {
             window.open(`/api/export/${group.group_id}?format=json`, '_blank');
-            this.$root.showToast('正在下载导出文件...', 'info');
+            window.showToast('正在下载导出文件...', 'info');
         }
     }
 }

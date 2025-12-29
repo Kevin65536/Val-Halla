@@ -184,6 +184,14 @@
     
     <!-- 全局 JavaScript -->
     <script>
+        // 全局 Toast 函数
+        window.showToast = function(message, type = 'info', duration = 3000) {
+            const event = new CustomEvent('show-toast', { 
+                detail: { message, type, duration }
+            });
+            window.dispatchEvent(event);
+        };
+        
         function app() {
             return {
                 status: {
@@ -206,6 +214,11 @@
                     setInterval(() => this.updateTime(), 1000);
                     // 每30秒刷新状态
                     setInterval(() => this.refreshStatus(), 30000);
+                    
+                    // 监听全局 Toast 事件
+                    window.addEventListener('show-toast', (e) => {
+                        this.showToast(e.detail.message, e.detail.type, e.detail.duration);
+                    });
                 },
                 
                 updateTime() {

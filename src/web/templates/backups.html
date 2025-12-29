@@ -406,7 +406,13 @@ function backupsPage() {
         
         formatTime(timestamp) {
             if (!timestamp) return '-';
-            const date = new Date(timestamp);
+            // 如果是字符串格式的UTC时间(如 "2025-12-29T10:05:07")，需要加上Z表示UTC
+            let date;
+            if (typeof timestamp === 'string' && !timestamp.endsWith('Z') && !timestamp.includes('+')) {
+                date = new Date(timestamp + 'Z'); // 添加Z表示这是UTC时间
+            } else {
+                date = new Date(timestamp);
+            }
             return date.toLocaleString('zh-CN');
         },
         

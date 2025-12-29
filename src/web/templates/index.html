@@ -116,92 +116,6 @@
         </div>
     </div>
     
-    <!-- 最近群组 & 最近备份 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- 最近群组 -->
-        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div class="p-4 border-b flex items-center justify-between">
-                <h3 class="font-semibold text-gray-800">最近群组</h3>
-                <a href="/groups" class="text-sm text-blue-600 hover:text-blue-700">查看全部</a>
-            </div>
-            <div class="divide-y">
-                <template x-if="loadingGroups">
-                    <div class="p-8 text-center text-gray-400">
-                        <div class="spinner mx-auto border-gray-300 border-t-gray-600"></div>
-                        <p class="mt-2">加载中...</p>
-                    </div>
-                </template>
-                <template x-if="!loadingGroups && groups.length === 0">
-                    <div class="p-8 text-center text-gray-400">
-                        <svg class="w-12 h-12 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
-                        </svg>
-                        <p class="mt-2">暂无群组数据</p>
-                    </div>
-                </template>
-                <template x-for="group in groups.slice(0, 5)" :key="group.group_id">
-                    <a :href="'/groups?id=' + group.group_id" class="flex items-center gap-4 p-4 table-row cursor-pointer">
-                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-bold">
-                            <span x-text="group.group_name?.charAt(0) || 'G'"></span>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <p class="font-medium text-gray-800 truncate" x-text="group.group_name"></p>
-                            <p class="text-sm text-gray-400" x-text="group.group_id"></p>
-                        </div>
-                        <div class="text-right">
-                            <p class="text-sm font-medium text-gray-600" x-text="group.member_count + ' 人'"></p>
-                        </div>
-                    </a>
-                </template>
-            </div>
-        </div>
-        
-        <!-- 最近备份 -->
-        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div class="p-4 border-b flex items-center justify-between">
-                <h3 class="font-semibold text-gray-800">最近备份</h3>
-                <a href="/backups" class="text-sm text-blue-600 hover:text-blue-700">查看全部</a>
-            </div>
-            <div class="divide-y">
-                <template x-if="loadingBackups">
-                    <div class="p-8 text-center text-gray-400">
-                        <div class="spinner mx-auto border-gray-300 border-t-gray-600"></div>
-                        <p class="mt-2">加载中...</p>
-                    </div>
-                </template>
-                <template x-if="!loadingBackups && backups.length === 0">
-                    <div class="p-8 text-center text-gray-400">
-                        <svg class="w-12 h-12 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                  d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2"/>
-                        </svg>
-                        <p class="mt-2">暂无备份记录</p>
-                    </div>
-                </template>
-                <template x-for="backup in backups.slice(0, 5)" :key="backup.id">
-                    <div class="flex items-center gap-4 p-4 table-row">
-                        <div class="w-10 h-10 rounded-full flex items-center justify-center"
-                             :class="backup.status === 'success' ? 'bg-green-100' : 'bg-red-100'">
-                            <svg class="w-5 h-5" :class="backup.status === 'success' ? 'text-green-600' : 'text-red-600'" 
-                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path x-show="backup.status === 'success'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                <path x-show="backup.status !== 'success'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <p class="font-medium text-gray-800" x-text="'群 ' + backup.group_id"></p>
-                            <p class="text-sm text-gray-400" x-text="backup.backup_type + ' · ' + backup.member_count + ' 人'"></p>
-                        </div>
-                        <div class="text-right">
-                            <p class="text-sm text-gray-600" x-text="formatTime(backup.created_at)"></p>
-                        </div>
-                    </div>
-                </template>
-            </div>
-        </div>
-    </div>
-    
     <!-- 快速备份对话框 -->
     <div x-show="showBackupModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
         <div @click.away="showBackupModal = false" class="bg-white rounded-xl shadow-xl w-full max-w-md">
@@ -269,7 +183,8 @@ function dashboard() {
                 const res = await fetch('/api/groups');
                 if (res.ok) {
                     const data = await res.json();
-                    this.groups = data.groups || [];
+                    // 按成员数降序排列
+                    this.groups = (data.groups || []).sort((a, b) => (b.member_count || 0) - (a.member_count || 0));
                     this.groupCount = data.total || 0;
                 }
             } catch (e) {
@@ -299,7 +214,7 @@ function dashboard() {
         
         async doBackup(groupId) {
             this.showBackupModal = false;
-            this.$root.showToast('正在备份群 ' + groupId + '...', 'info');
+            window.showToast('正在备份群 ' + groupId + '...', 'info');
             
             try {
                 const res = await fetch('/api/backup', {
@@ -310,20 +225,26 @@ function dashboard() {
                 
                 if (res.ok) {
                     const data = await res.json();
-                    this.$root.showToast('备份成功！共 ' + data.member_count + ' 人', 'success');
+                    window.showToast('备份成功！共 ' + data.member_count + ' 人', 'success');
                     await this.loadBackups();
                 } else {
                     const err = await res.json();
-                    this.$root.showToast('备份失败: ' + err.detail, 'error');
+                    window.showToast('备份失败: ' + err.detail, 'error');
                 }
             } catch (e) {
-                this.$root.showToast('备份失败: ' + e.message, 'error');
+                window.showToast('备份失败: ' + e.message, 'error');
             }
         },
         
         formatTime(timestamp) {
             if (!timestamp) return '-';
-            const date = new Date(timestamp);
+            // 如果是字符串格式的UTC时间(如 "2025-12-29T10:05:07")，需要加上Z表示UTC
+            let date;
+            if (typeof timestamp === 'string' && !timestamp.endsWith('Z') && !timestamp.includes('+')) {
+                date = new Date(timestamp + 'Z'); // 添加Z表示这是UTC时间
+            } else {
+                date = new Date(timestamp);
+            }
             return date.toLocaleString('zh-CN', { 
                 month: 'short', 
                 day: 'numeric',

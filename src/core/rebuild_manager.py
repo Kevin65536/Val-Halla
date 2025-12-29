@@ -208,6 +208,262 @@ class RebuildManager:
             progress_callback
         )
     
+    async def rebuild_group(
+        self,
+        group_id: int,
+        backup_id: int,
+        target_group_id: int = None,
+        restore_cards: bool = True,
+        restore_titles: bool = True,
+        restore_admins: bool = False,
+        dry_run: bool = True
+    ) -> Dict[str, Any]:
+        """
+        从备份重建群组（WebUI 调用入口）
+        
+        Args:
+            group_id: 备份来源群号
+            backup_id: 备份ID
+            target_group_id: 目标群号（恢复到哪个群，可与来源群不同）
+            restore_cards: 是否恢复群名片
+            restore_titles: 是否恢复专属头衔
+            restore_admins: 是否恢复管理员权限
+            dry_run: 是否为模拟运行（只预览变更，不实际执行）
+            
+        Returns:
+            重建结果或预览信息
+        """
+        # 如果未指定目标群，则使用备份来源群
+        if target_group_id is None:
+            target_group_id = group_id
+        
+        # 更新实例配置
+        self.restore_cards = restore_cards
+        self.restore_titles = restore_titles
+        self.restore_admins = restore_admins
+        
+        # 获取备份成员
+        async with db_manager.get_async_session() as session:
+            # 获取备份信息
+            backup_result = await session.execute(
+                select(Backup).where(Backup.id == backup_id)
+            )
+            backup = backup_result.scalar_one_or_none()
+            
+            if not backup:
+                raise ValueError(f"备份 {backup_id} 不存在")
+            
+            # 验证备份来源群（确保备份确实是这个群的）
+            if backup.group_id != group_id:
+                raise ValueError(f"备份 {backup_id} 不属于群组 {group_id}")
+            
+            # 获取备份成员
+            result = await session.execute(
+                select(BackupMember).where(BackupMember.backup_id == backup_id)
+            )
+            backup_members = list(result.scalars().all())
+        
+        if not backup_members:
+            raise ValueError(f"备份 {backup_id} 中没有成员数据")
+        
+        is_cross_group = target_group_id != group_id
+        logger.info(f"{'[DRY RUN] ' if dry_run else ''}从备份 {backup_id} (群 {group_id}) 重建到群 {target_group_id}, 成员数: {len(backup_members)}, 跨群: {is_cross_group}")
+        
+        if dry_run:
+            # 模拟运行：只分析差异，不执行实际操作
+            return await self._dry_run_rebuild(target_group_id, backup_members, source_group_id=group_id)
+        else:
+            # 实际执行
+            progress = await self._rebuild_group(target_group_id, backup_members, None)
+            return {
+                "success": True,
+                "status": progress.status.value,
+                "total": progress.total,
+                "success_count": progress.success,
+                "failed_count": progress.failed,
+                "skipped_count": progress.skipped,
+                "results": [
+                    {
+                        "user_id": r.user_id,
+                        "nickname": r.nickname,
+                        "status": r.status.value,
+                        "message": r.message,
+                    }
+                    for r in progress.results
+                ]
+            }
+    
+    async def _dry_run_rebuild(
+        self,
+        group_id: int,
+        backup_members: List[BackupMember],
+        source_group_id: int = None
+    ) -> Dict[str, Any]:
+        """
+        模拟运行重建（只分析差异，不执行操作）
+        
+        Args:
+            group_id: 目标群号（恢复到哪个群）
+            backup_members: 备份成员列表
+            source_group_id: 备份来源群号（可选，用于显示跨群信息）
+            
+        Returns:
+            预览信息
+        """
+        is_cross_group = source_group_id and source_group_id != group_id
+        changes = []
+        
+        # 获取当前群成员（使用 no_cache 确保获取最新数据）
+        try:
+            current_members = await self.client.get_group_member_list(group_id, no_cache=True)
+            current_map = {m.get("user_id"): m for m in current_members}
+            current_user_ids = set(current_map.keys())
+        except Exception as e:
+            logger.error(f"获取目标群成员失败: {str(e)}")
+            raise ValueError(f"获取群成员失败: {str(e)}")
+        
+        # 获取登录账号
+        try:
+            login_info = await self.client.get_login_info()
+            bot_user_id = login_info.get("user_id")
+        except:
+            bot_user_id = None
+        
+        # 获取好友列表
+        try:
+            friends = await self.client.get_friend_list()
+            friend_ids = set(f.get("user_id") for f in friends)
+        except:
+            friend_ids = set()
+        
+        # 统计
+        stats = {
+            "total_backup_members": len(backup_members),
+            "current_members": len(current_user_ids),
+            "will_skip_bot": 0,
+            "will_skip_already_in": 0,
+            "will_skip_not_friend": 0,
+            "will_restore_card": 0,
+            "will_restore_title": 0,
+            "will_restore_admin": 0,
+            "cannot_invite": 0,
+        }
+        
+        for member in backup_members:
+            user_id = member.user_id
+            
+            # 跳过 Bot 自身
+            if user_id == bot_user_id:
+                stats["will_skip_bot"] += 1
+                changes.append({
+                    "user_id": user_id,
+                    "nickname": member.nickname,
+                    "action": "skip",
+                    "reason": "Bot自身",
+                    "details": []
+                })
+                continue
+            
+            # 检查是否已在群内
+            if user_id in current_user_ids:
+                stats["will_skip_already_in"] += 1
+                current_member = current_map[user_id]
+                member_changes = []
+                
+                # 检查名片差异（备份值可能是空字符串，也需要恢复）
+                if self.restore_cards:
+                    current_card = current_member.get("card", "") or ""
+                    backup_card = member.card or ""
+                    if current_card != backup_card:
+                        member_changes.append({
+                            "type": "card",
+                            "current": current_card,
+                            "backup": backup_card,
+                            "action": f"将名片从 '{current_card}' 改为 '{backup_card}'" if backup_card else f"清空名片（当前: '{current_card}'）"
+                        })
+                        stats["will_restore_card"] += 1
+                
+                # 检查头衔差异（备份值可能是空字符串，也需要恢复）
+                if self.restore_titles:
+                    current_title = current_member.get("title", "") or ""
+                    backup_title = member.title or ""
+                    if current_title != backup_title:
+                        member_changes.append({
+                            "type": "title",
+                            "current": current_title,
+                            "backup": backup_title,
+                            "action": f"将头衔从 '{current_title}' 改为 '{backup_title}'" if backup_title else f"清空头衔（当前: '{current_title}'）"
+                        })
+                        stats["will_restore_title"] += 1
+                
+                # 检查管理员差异
+                if self.restore_admins and member.role == "admin":
+                    current_role = current_member.get("role", "member")
+                    if current_role != "admin" and current_role != "owner":
+                        member_changes.append({
+                            "type": "admin",
+                            "current": current_role,
+                            "backup": "admin",
+                            "action": f"将 {member.nickname} 设为管理员"
+                        })
+                        stats["will_restore_admin"] += 1
+                
+                if member_changes:
+                    changes.append({
+                        "user_id": user_id,
+                        "nickname": member.nickname,
+                        "action": "restore",
+                        "reason": "已在群内，将恢复信息",
+                        "details": member_changes
+                    })
+                else:
+                    changes.append({
+                        "user_id": user_id,
+                        "nickname": member.nickname,
+                        "action": "skip",
+                        "reason": "已在群内，无需更改",
+                        "details": []
+                    })
+            else:
+                # 不在群内的成员
+                if user_id not in friend_ids:
+                    stats["will_skip_not_friend"] += 1
+                    stats["cannot_invite"] += 1
+                    changes.append({
+                        "user_id": user_id,
+                        "nickname": member.nickname,
+                        "action": "cannot_invite",
+                        "reason": "非好友，无法邀请",
+                        "details": []
+                    })
+                else:
+                    stats["cannot_invite"] += 1
+                    changes.append({
+                        "user_id": user_id,
+                        "nickname": member.nickname,
+                        "action": "need_invite",
+                        "reason": "是好友，但OneBot标准不支持直接邀请入群",
+                        "details": []
+                    })
+        
+        return {
+            "dry_run": True,
+            "message": "这是模拟运行结果，不会执行任何实际操作" + (f"（跨群重建：从群 {source_group_id} 恢复到群 {group_id}）" if is_cross_group else ""),
+            "statistics": stats,
+            "changes": changes,
+            "summary": {
+                "restore_cards": self.restore_cards,
+                "restore_titles": self.restore_titles,
+                "restore_admins": self.restore_admins,
+                "total_changes": stats["will_restore_card"] + stats["will_restore_title"] + stats["will_restore_admin"],
+                "is_cross_group": is_cross_group,
+                "source_group_id": source_group_id,
+                "target_group_id": group_id,
+                "warning": "OneBot 11 标准不支持直接邀请成员入群，只能恢复已在目标群内成员的信息" if stats["cannot_invite"] > 0 else None
+            }
+        }
+
+    
     async def rebuild_from_members(
         self,
         target_group_id: int,
@@ -270,9 +526,9 @@ class RebuildManager:
         self._cancelled = False
         self._paused = False
         
-        # 获取当前群成员
+        # 获取当前群成员（使用 no_cache 确保获取最新数据）
         try:
-            current_members = await self.client.get_group_member_list(target_group_id)
+            current_members = await self.client.get_group_member_list(target_group_id, no_cache=True)
             current_user_ids = set(m.get("user_id") for m in current_members)
         except Exception as e:
             logger.error(f"获取目标群成员失败: {str(e)}")
@@ -329,20 +585,32 @@ class RebuildManager:
                 self._progress.results.append(result)
                 continue
             
-            # 跳过已在群内的成员
+            # 跳过已在群内的成员，但恢复其信息
             if member.user_id in current_user_ids:
-                result = InviteResult(
-                    user_id=member.user_id,
-                    nickname=member.nickname,
-                    status=InviteStatus.SKIPPED,
-                    message="已在群内"
-                )
-                self._progress.skipped += 1
+                # 恢复名片和权限
+                restore_details = await self._restore_member_info(target_group_id, member)
+                
+                if restore_details:
+                    # 有恢复操作执行
+                    result = InviteResult(
+                        user_id=member.user_id,
+                        nickname=member.nickname,
+                        status=InviteStatus.SUCCESS,
+                        message=f"已在群内，恢复了: {', '.join(restore_details)}"
+                    )
+                    self._progress.success += 1
+                else:
+                    # 无需恢复
+                    result = InviteResult(
+                        user_id=member.user_id,
+                        nickname=member.nickname,
+                        status=InviteStatus.SKIPPED,
+                        message="已在群内，无需更改"
+                    )
+                    self._progress.skipped += 1
+                
                 self._progress.processed += 1
                 self._progress.results.append(result)
-                
-                # 但仍然恢复名片和权限
-                await self._restore_member_info(target_group_id, member)
                 continue
             
             # 尝试邀请
@@ -453,30 +721,49 @@ class RebuildManager:
         self,
         group_id: int,
         member: BackupMember
-    ):
-        """恢复成员信息(名片、头衔、权限)"""
+    ) -> List[str]:
+        """
+        恢复成员信息(名片、头衔、权限)
+        
+        Returns:
+            成功恢复的项目列表 (如 ["名片", "头衔", "管理员"])
+        """
+        restored = []
+        
         try:
-            # 恢复群名片
-            if self.restore_cards and member.card:
+            # 恢复群名片（备份值可能是空字符串，也需要设置以清空）
+            if self.restore_cards:
+                backup_card = member.card or ""
                 try:
                     await self.client.set_group_card(
                         group_id,
                         member.user_id,
-                        member.card
+                        backup_card
                     )
-                    logger.debug(f"已恢复名片: {member.user_id} -> {member.card}")
+                    if backup_card:
+                        logger.debug(f"已恢复名片: {member.user_id} -> {backup_card}")
+                        restored.append(f"名片'{backup_card}'")
+                    else:
+                        logger.debug(f"已清空名片: {member.user_id}")
+                        restored.append("清空名片")
                 except Exception as e:
                     logger.warning(f"恢复名片失败 {member.user_id}: {str(e)}")
             
-            # 恢复专属头衔
-            if self.restore_titles and member.title:
+            # 恢复专属头衔（备份值可能是空字符串，也需要设置以清空）
+            if self.restore_titles:
+                backup_title = member.title or ""
                 try:
                     await self.client.set_group_special_title(
                         group_id,
                         member.user_id,
-                        member.title
+                        backup_title
                     )
-                    logger.debug(f"已恢复头衔: {member.user_id} -> {member.title}")
+                    if backup_title:
+                        logger.debug(f"已恢复头衔: {member.user_id} -> {backup_title}")
+                        restored.append(f"头衔'{backup_title}'")
+                    else:
+                        logger.debug(f"已清空头衔: {member.user_id}")
+                        restored.append("清空头衔")
                 except Exception as e:
                     logger.warning(f"恢复头衔失败 {member.user_id}: {str(e)}")
             
@@ -489,11 +776,14 @@ class RebuildManager:
                         True
                     )
                     logger.debug(f"已恢复管理员: {member.user_id}")
+                    restored.append("管理员权限")
                 except Exception as e:
                     logger.warning(f"恢复管理员失败 {member.user_id}: {str(e)}")
                     
         except Exception as e:
             logger.error(f"恢复成员信息失败 {member.user_id}: {str(e)}")
+        
+        return restored
     
     async def get_rebuild_summary(self) -> Dict[str, Any]:
         """获取重建摘要"""

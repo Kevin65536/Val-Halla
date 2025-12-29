@@ -139,8 +139,9 @@ class BackupRequest(BaseModel):
     backup_type: str = "full"
 
 class RebuildRequest(BaseModel):
-    group_id: int
+    group_id: int  # 备份来源群号
     backup_id: int
+    target_group_id: int = None  # 目标群号（可选，默认为来源群）
     restore_cards: bool = True
     restore_titles: bool = True
     restore_admins: bool = False
@@ -340,8 +341,12 @@ async def api_rebuild(req: RebuildRequest):
         raise HTTPException(status_code=503, detail="OneBot 未连接")
     
     try:
+        # 如果未指定目标群，则使用备份来源群
+        target_group_id = req.target_group_id or req.group_id
+        
         result = await state.rebuild_manager.rebuild_group(
-            group_id=req.group_id,
+            group_id=req.group_id,  # 备份来源群
+            target_group_id=target_group_id,  # 实际恢复到的目标群
             backup_id=req.backup_id,
             restore_cards=req.restore_cards,
             restore_titles=req.restore_titles,

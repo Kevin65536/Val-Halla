@@ -223,10 +223,23 @@
         <div @click.away="showRebuildModal = false" class="bg-white rounded-xl shadow-xl w-full max-w-lg">
             <div class="p-6 border-b">
                 <h3 class="text-lg font-semibold">群重建配置</h3>
-                <p class="text-sm text-gray-500 mt-1">从备份 #<span x-text="rebuildBackup?.id"></span> 重建群 <span x-text="rebuildBackup?.group_id"></span></p>
+                <p class="text-sm text-gray-500 mt-1">从备份 #<span x-text="rebuildBackup?.id"></span> (群 <span x-text="rebuildBackup?.group_id"></span>) 恢复成员信息</p>
             </div>
             
             <div class="p-6 space-y-4">
+                <!-- 目标群选择 -->
+                <div class="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <label class="block">
+                        <p class="font-medium text-blue-800 mb-2">选择目标群</p>
+                        <p class="text-sm text-blue-600 mb-3">选择要将备份成员信息恢复到的群组（支持跨群重建）</p>
+                        <select x-model="rebuildOptions.target_group_id" class="w-full px-3 py-2 bg-white border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <template x-for="group in groups" :key="group.group_id">
+                                <option :value="group.group_id" x-text="group.group_name + ' (' + group.group_id + ')'"></option>
+                            </template>
+                        </select>
+                    </label>
+                </div>
+                
                 <label class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition">
                     <input type="checkbox" x-model="rebuildOptions.restore_cards" class="w-5 h-5 text-blue-600 rounded">
                     <div>
@@ -296,7 +309,8 @@ function backupsPage() {
             restore_cards: true,
             restore_titles: true,
             restore_admins: false,
-            dry_run: true
+            dry_run: true,
+            target_group_id: null  // 目标群ID（跨群重建）
         },
         
         async init() {
@@ -367,6 +381,10 @@ function backupsPage() {
         
         rebuildFromBackup(backup) {
             this.rebuildBackup = backup;
+            // 默认目标群为群列表中的第一个群（用户可以更改）
+            if (this.groups.length > 0) {
+                this.rebuildOptions.target_group_id = this.groups[0].group_id;
+            }
             this.showDetailModal = false;
             this.showRebuildModal = true;
         },
@@ -379,16 +397,43 @@ function backupsPage() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        group_id: this.rebuildBackup.group_id,
+                        group_id: this.rebuildBackup.group_id,  // 备份来源群
                         backup_id: this.rebuildBackup.id,
-                        ...this.rebuildOptions
+                        target_group_id: this.rebuildOptions.target_group_id,  // 目标群（跨群重建）
+                        restore_cards: this.rebuildOptions.restore_cards,
+                        restore_titles: this.rebuildOptions.restore_titles,
+                        restore_admins: this.rebuildOptions.restore_admins,
+                        dry_run: this.rebuildOptions.dry_run
                     })
                 });
                 
                 if (res.ok) {
                     const data = await res.json();
                     if (this.rebuildOptions.dry_run) {
-                        window.showToast('预览完成！将修改 ' + (data.changes?.length || 0) + ' 项', 'info');
+                        // 显示详细的预览结果
+                        const stats = data.statistics || {};
+                        const summary = data.summary || {};
+                        const totalChanges = summary.total_changes || 0;
+                        const isCrossGroup = summary.is_cross_group || false;
+                        const crossGroupInfo = isCrossGroup ? `（跨群重建到 ${summary.target_group_id}）` : '';
+                        
+                        if (totalChanges > 0) {
+                            let changeDetails = [];
+                            if (stats.will_restore_card > 0) changeDetails.push(`名片: ${stats.will_restore_card}`);
+                            if (stats.will_restore_title > 0) changeDetails.push(`头衔: ${stats.will_restore_title}`);
+                            if (stats.will_restore_admin > 0) changeDetails.push(`管理员: ${stats.will_restore_admin}`);
+                            window.showToast(`预览完成${crossGroupInfo}！将修改 ${totalChanges} 项 (${changeDetails.join(', ')})`, 'info');
+                        } else {
+                            // 没有需要修改的内容，显示更详细的信息
+                            let skipInfo = `已分析 ${stats.total_backup_members || 0} 名成员`;
+                            if (stats.will_skip_bot > 0) skipInfo += `，跳过 Bot`;
+                            if (stats.will_skip_already_in > 0) skipInfo += `，${stats.will_skip_already_in} 人无需更改`;
+                            if (stats.cannot_invite > 0) skipInfo += `，${stats.cannot_invite} 人不在目标群`;
+                            window.showToast(`预览完成${crossGroupInfo}：无需更改任何内容。` + skipInfo, 'info');
+                        }
+                        
+                        // 在控制台打印详细信息供调试
+                        console.log('Dry run result:', data);
                     } else {
                         window.showToast('重建完成！已修改 ' + (data.success_count || 0) + ' 项', 'success');
                     }

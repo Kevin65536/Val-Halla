@@ -402,7 +402,7 @@ def export(group_id: int, export_format: str, output: str):
             members = await client.get_group_member_list(group_id, no_cache=True)
             
             if not output:
-                filename = f"members_{group_id}.{export_format}"
+                filename = f"export/members_{group_id}.{export_format}"
             else:
                 filename = output
             

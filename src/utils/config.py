@@ -18,14 +18,14 @@ class OneBotHttpConfig(BaseModel):
 class OneBotWebSocketConfig(BaseModel):
     """OneBot WebSocket 配置"""
     host: str = "127.0.0.1"
-    port: int = 6700
+    port: int = 5700
     reconnect: bool = True
     reconnect_interval: int = 5
 
 
 class OneBotConfig(BaseModel):
     """OneBot 配置"""
-    protocol: str = "http"
+    protocol: str = "websocket"
     http: OneBotHttpConfig = Field(default_factory=OneBotHttpConfig)
     websocket: OneBotWebSocketConfig = Field(default_factory=OneBotWebSocketConfig)
     access_token: str = ""

@@ -133,7 +133,7 @@ Val-Halla/
 ### ✅ 已完成
 
 - [x] 项目结构设计
-- [x] OneBot API 封装 (HTTP 连接、API 调用)
+- [x] OneBot API 封装 (WebSocket / HTTP 调用)
 - [x] 数据库模型设计 (SQLAlchemy ORM)
 - [x] 群成员备份功能
   - [x] 获取群成员列表
@@ -169,6 +169,7 @@ pip install -r requirements.txt
 ### 2. 配置 OneBot
 - 安装并配置 NapCat、LLOneBot 或其他 OneBot 11 实现
 - 在 `config/config.yaml` 中填写连接信息
+- 默认按 WebSocket 直连 OneBot；如你的实现暴露的是 HTTP API，请将 `onebot.protocol` 改为 `http`
 
 ### 3. 运行程序
 
@@ -241,7 +242,8 @@ python -m src.main webui --host 0.0.0.0 --port 8080
 
 ### OneBot 11 标准
 - 完全兼容 OneBot 11 协议规范
-- 仅支持 HTTP 通信
+- 默认使用 WebSocket 通信
+- 同时支持 HTTP API 调用
 
 ### 推荐实现
 1. **NapCatQQ**: 基于 NTQQ 的现代化实现

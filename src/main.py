@@ -52,9 +52,20 @@ def init_app():
 
 def create_client(config) -> OneBotAPI:
     """创建 OneBot 客户端"""
+    protocol = (config.onebot.protocol or "http").lower().strip()
+    if protocol in {"websocket", "ws"}:
+        host = config.onebot.websocket.host
+        port = config.onebot.websocket.port
+        protocol = "websocket"
+    else:
+        host = config.onebot.http.host
+        port = config.onebot.http.port
+        protocol = "http"
+
     return OneBotAPI(
-        host=config.onebot.http.host,
-        port=config.onebot.http.port,
+        host=host,
+        port=port,
+        protocol=protocol,
         access_token=config.onebot.access_token,
         timeout=config.onebot.api_timeout
     )

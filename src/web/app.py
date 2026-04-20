@@ -82,9 +82,20 @@ async def startup():
     
     # 初始化 OneBot API
     onebot_cfg = state.config.onebot
+    protocol = (onebot_cfg.protocol or "http").lower().strip()
+    if protocol in {"websocket", "ws"}:
+        host = onebot_cfg.websocket.host
+        port = onebot_cfg.websocket.port
+        protocol = "websocket"
+    else:
+        host = onebot_cfg.http.host
+        port = onebot_cfg.http.port
+        protocol = "http"
+
     state.onebot = OneBotAPI(
-        host=onebot_cfg.http.host,
-        port=onebot_cfg.http.port,
+        host=host,
+        port=port,
+        protocol=protocol,
         access_token=onebot_cfg.access_token,
         timeout=onebot_cfg.api_timeout
     )

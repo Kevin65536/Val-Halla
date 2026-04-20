@@ -1,8 +1,13 @@
 """
 OneBot API 封装模块
 """
+import asyncio
+import json
 from typing import Any, Dict, List, Optional
-import requests
+from uuid import uuid4
+
+import httpx
+import websockets
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,6 +20,7 @@ class OneBotAPI:
         self,
         host: str = "127.0.0.1",
         port: int = 5700,
+        protocol: str = "websocket",
         access_token: str = "",
         timeout: int = 30
     ):
@@ -24,10 +30,22 @@ class OneBotAPI:
         Args:
             host: OneBot 服务地址
             port: OneBot 服务端口
+            protocol: 通信协议，支持 http / websocket
             access_token: 访问令牌
             timeout: 请求超时时间
         """
+        normalized_protocol = (protocol or "websocket").lower().strip()
+        if normalized_protocol == "ws":
+            normalized_protocol = "websocket"
+        if normalized_protocol not in {"http", "websocket"}:
+            logger.warning(f"未知的 OneBot 协议配置: {protocol}，已回退到 websocket")
+            normalized_protocol = "websocket"
+
+        self.host = host
+        self.port = port
+        self.protocol = normalized_protocol
         self.base_url = f"http://{host}:{port}"
+        self.ws_url = f"ws://{host}:{port}"
         self.access_token = access_token
         self.timeout = timeout
         self.headers = {}
@@ -35,7 +53,8 @@ class OneBotAPI:
         if access_token:
             self.headers["Authorization"] = f"Bearer {access_token}"
         
-        logger.info(f"OneBot API 客户端已初始化: {self.base_url}")
+        endpoint = self.base_url if self.protocol == "http" else self.ws_url
+        logger.info(f"OneBot API 客户端已初始化: protocol={self.protocol}, endpoint={endpoint}")
     
     async def _call_api(
         self,
@@ -52,32 +71,102 @@ class OneBotAPI:
         Returns:
             API 响应数据
         """
-        url = f"{self.base_url}/{endpoint}"
-        
+        request_params = params or {}
+
+        if self.protocol == "websocket":
+            return await self._call_api_websocket(endpoint, request_params)
+
         try:
-            response = requests.post(
-                url,
-                json=params or {},
-                headers=self.headers,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            
-            if result.get("status") == "failed":
-                error_msg = result.get("msg", "Unknown error")
-                logger.error(f"API 调用失败: {endpoint} - {error_msg}")
-                raise Exception(f"API Error: {error_msg}")
-            
-            return result.get("data", {})
-            
-        except requests.RequestException as e:
+            return await self._call_api_http(endpoint, request_params)
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP 请求错误: {endpoint} - {str(e)}")
+            raise
+        except httpx.RequestError as e:
             logger.error(f"HTTP 请求错误: {endpoint} - {str(e)}")
             raise
         except Exception as e:
             logger.error(f"API 调用异常: {endpoint} - {str(e)}")
             raise
+
+    async def _call_api_http(
+        self,
+        endpoint: str,
+        params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """通过 HTTP 调用 OneBot API"""
+        url = f"{self.base_url}/{endpoint}"
+
+        async with httpx.AsyncClient(headers=self.headers, timeout=self.timeout) as client:
+            response = await client.post(url, json=params)
+            response.raise_for_status()
+            result = response.json()
+
+        return self._extract_result(endpoint, result)
+
+    async def _call_api_websocket(
+        self,
+        endpoint: str,
+        params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """通过 WebSocket 调用 OneBot API"""
+        echo = str(uuid4())
+        payload = {
+            "action": endpoint,
+            "params": params,
+            "echo": echo
+        }
+
+        websocket = await self._connect_websocket()
+
+        try:
+            await websocket.send(json.dumps(payload))
+
+            while True:
+                raw_message = await asyncio.wait_for(websocket.recv(), timeout=self.timeout)
+
+                if isinstance(raw_message, bytes):
+                    raw_message = raw_message.decode("utf-8")
+
+                result = json.loads(raw_message)
+
+                if result.get("echo") != echo:
+                    continue
+
+                return self._extract_result(endpoint, result)
+        except Exception as e:
+            logger.error(f"WebSocket 调用异常: {endpoint} - {str(e)}")
+            raise
+        finally:
+            await websocket.close()
+
+    async def _connect_websocket(self):
+        """建立 WebSocket 连接"""
+        connect_kwargs = {"open_timeout": self.timeout}
+        if self.headers:
+            connect_kwargs["extra_headers"] = self.headers
+
+        try:
+            return await websockets.connect(self.ws_url, **connect_kwargs)
+        except TypeError:
+            if "extra_headers" not in connect_kwargs:
+                raise
+
+            connect_kwargs["additional_headers"] = connect_kwargs.pop("extra_headers")
+            return await websockets.connect(self.ws_url, **connect_kwargs)
+
+    def _extract_result(self, endpoint: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        """统一解析 OneBot API 响应"""
+        if result.get("status") == "failed" or result.get("retcode", 0) not in (0, None):
+            error_msg = (
+                result.get("msg")
+                or result.get("message")
+                or result.get("wording")
+                or "Unknown error"
+            )
+            logger.error(f"API 调用失败: {endpoint} - {error_msg}")
+            raise Exception(f"API Error: {error_msg}")
+
+        return result.get("data", {})
     
     # ==================== 群组相关 API ====================
     
@@ -359,8 +448,9 @@ class OneBotAPI:
 async def create_onebot_client(
     host: str = "127.0.0.1",
     port: int = 5700,
+    protocol: str = "websocket",
     access_token: str = "",
     timeout: int = 30
 ) -> OneBotAPI:
     """创建 OneBot 客户端"""
-    return OneBotAPI(host, port, access_token, timeout)
+    return OneBotAPI(host, port, protocol, access_token, timeout)

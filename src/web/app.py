@@ -164,8 +164,7 @@ class RebuildRequest(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """首页/仪表盘"""
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "page": "dashboard"
     })
 
@@ -173,8 +172,7 @@ async def index(request: Request):
 @app.get("/groups", response_class=HTMLResponse)
 async def groups_page(request: Request):
     """群组管理页面"""
-    return templates.TemplateResponse("groups.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "groups.html", {
         "page": "groups"
     })
 
@@ -182,8 +180,7 @@ async def groups_page(request: Request):
 @app.get("/backups", response_class=HTMLResponse)
 async def backups_page(request: Request):
     """备份历史页面"""
-    return templates.TemplateResponse("backups.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "backups.html", {
         "page": "backups"
     })
 
@@ -191,8 +188,7 @@ async def backups_page(request: Request):
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """设置页面"""
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "settings.html", {
         "page": "settings"
     })
 
@@ -331,6 +327,17 @@ async def api_backup_detail(backup_id: int):
         return backup
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/backups/{backup_id}/changes")
+async def api_backup_changes(backup_id: int):
+    """获取备份的成员变动明细"""
+    try:
+        return await state.backup_manager.get_backup_changes(backup_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

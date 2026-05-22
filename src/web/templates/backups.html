@@ -98,9 +98,19 @@
                         
                         <!-- 变动 -->
                         <div class="col-span-2 text-center">
-                            <span class="text-green-600" x-text="'+' + (backup.new_members || 0)"></span>
+                            <button type="button"
+                                @click="viewBackupChanges(backup, 'joined')"
+                                :disabled="!canViewChanges(backup)"
+                                class="font-medium transition"
+                                :class="canViewChanges(backup) ? 'text-green-600 hover:text-green-700 hover:underline cursor-pointer' : 'text-gray-300 cursor-not-allowed'"
+                                x-text="'+' + (backup.new_members || 0)"></button>
                             <span class="text-gray-400 mx-1">/</span>
-                            <span class="text-red-600" x-text="'-' + (backup.left_members || 0)"></span>
+                            <button type="button"
+                                @click="viewBackupChanges(backup, 'left')"
+                                :disabled="!canViewChanges(backup)"
+                                class="font-medium transition"
+                                :class="canViewChanges(backup) ? 'text-red-600 hover:text-red-700 hover:underline cursor-pointer' : 'text-gray-300 cursor-not-allowed'"
+                                x-text="'-' + (backup.left_members || 0)"></button>
                         </div>
                         
                         <!-- 时间 -->
@@ -159,9 +169,21 @@
                     <div class="bg-gray-50 rounded-lg p-4">
                         <p class="text-sm text-gray-500">成员变动</p>
                         <p class="text-lg font-medium">
-                            <span class="text-green-600">+<span x-text="selectedBackup?.new_members || 0"></span></span>
+                            <button type="button"
+                                    @click="showDetailModal = false; viewBackupChanges(selectedBackup, 'joined')"
+                                    :disabled="!canViewChanges(selectedBackup)"
+                                    class="transition"
+                                    :class="canViewChanges(selectedBackup) ? 'text-green-600 hover:text-green-700 hover:underline cursor-pointer' : 'text-gray-300 cursor-not-allowed'">
+                                +<span x-text="selectedBackup?.new_members || 0"></span>
+                            </button>
                             <span class="text-gray-400 mx-2">/</span>
-                            <span class="text-red-600">-<span x-text="selectedBackup?.left_members || 0"></span></span>
+                            <button type="button"
+                                    @click="showDetailModal = false; viewBackupChanges(selectedBackup, 'left')"
+                                    :disabled="!canViewChanges(selectedBackup)"
+                                    class="transition"
+                                    :class="canViewChanges(selectedBackup) ? 'text-red-600 hover:text-red-700 hover:underline cursor-pointer' : 'text-gray-300 cursor-not-allowed'">
+                                -<span x-text="selectedBackup?.left_members || 0"></span>
+                            </button>
                         </p>
                     </div>
                     <div class="bg-gray-50 rounded-lg p-4">
@@ -189,6 +211,104 @@
                     从此备份重建
                 </button>
                 <button @click="showDetailModal = false" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">
+                    关闭
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 成员变动弹窗 -->
+    <div x-show="showChangesModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <div @click.away="showChangesModal = false" class="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div class="p-6 border-b flex items-start justify-between gap-4">
+                <div>
+                    <h3 class="text-lg font-semibold">成员变动详情</h3>
+                    <p class="text-sm text-gray-500 mt-1">
+                        备份 #<span x-text="changesDetail?.current_backup?.id || '-' "></span>
+                        <template x-if="changesDetail?.previous_backup">
+                            <span> 对比备份 #<span x-text="changesDetail.previous_backup.id"></span></span>
+                        </template>
+                    </p>
+                </div>
+                <button @click="showChangesModal = false" class="p-2 hover:bg-gray-100 rounded-lg transition">
+                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="p-6 border-b bg-gray-50 space-y-3">
+                <template x-if="changesDetail?.notice">
+                    <div class="px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-700" x-text="changesDetail.notice"></div>
+                </template>
+
+                <div class="flex flex-wrap gap-3">
+                    <button type="button"
+                            @click="changesTab = 'joined'"
+                            class="px-4 py-2 rounded-lg text-sm font-medium transition"
+                            :class="changesTab === 'joined' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 border hover:border-green-300'">
+                        新增成员 +<span x-text="changesDetail?.joined?.length || 0"></span>
+                    </button>
+                    <button type="button"
+                            @click="changesTab = 'left'"
+                            class="px-4 py-2 rounded-lg text-sm font-medium transition"
+                            :class="changesTab === 'left' ? 'bg-red-600 text-white' : 'bg-white text-gray-600 border hover:border-red-300'">
+                        退出成员 -<span x-text="changesDetail?.left?.length || 0"></span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-6">
+                <template x-if="changesLoading">
+                    <div class="py-12 text-center">
+                        <div class="spinner mx-auto border-gray-300 border-t-blue-600"></div>
+                        <p class="text-gray-400 mt-4">加载成员变动详情...</p>
+                    </div>
+                </template>
+
+                <template x-if="!changesLoading && activeChangeMembers().length === 0">
+                    <div class="py-12 text-center text-gray-400">
+                        当前分类下暂无成员记录
+                    </div>
+                </template>
+
+                <template x-if="!changesLoading && activeChangeMembers().length > 0">
+                    <div class="space-y-3">
+                        <template x-for="member in activeChangeMembers()" :key="changesTab + '-' + member.user_id">
+                            <div class="border rounded-xl p-4 hover:border-blue-200 transition">
+                                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                    <div>
+                                        <p class="text-base font-medium text-gray-800" x-text="formatChangeMember(member)"></p>
+                                        <p class="text-sm text-gray-500 mt-1">
+                                            QQ <span x-text="member.user_id"></span>
+                                            <template x-if="member.nickname && member.nickname !== member.display_name">
+                                                <span> · 昵称 <span x-text="member.nickname"></span></span>
+                                            </template>
+                                            <template x-if="member.card">
+                                                <span> · 名片 <span x-text="member.card"></span></span>
+                                            </template>
+                                        </p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2 text-xs">
+                                        <template x-if="member.role">
+                                            <span class="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700" x-text="member.role"></span>
+                                        </template>
+                                        <template x-if="member.title">
+                                            <span class="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700" x-text="member.title"></span>
+                                        </template>
+                                        <template x-if="member.level">
+                                            <span class="px-2.5 py-1 rounded-full bg-gray-100 text-gray-600" x-text="'等级 ' + member.level"></span>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+
+            <div class="p-4 border-t bg-gray-50 flex justify-end">
+                <button @click="showChangesModal = false" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">
                     关闭
                 </button>
             </div>
@@ -302,6 +422,10 @@ function backupsPage() {
         selectedBackup: null,
         showDeleteModal: false,
         backupToDelete: null,
+        showChangesModal: false,
+        changesLoading: false,
+        changesTab: 'joined',
+        changesDetail: null,
         showRebuildModal: false,
         rebuildBackup: null,
         rebuilding: false,
@@ -353,6 +477,57 @@ function backupsPage() {
         viewBackup(backup) {
             this.selectedBackup = backup;
             this.showDetailModal = true;
+        },
+
+        canViewChanges(backup) {
+            return backup && backup.status === 'success';
+        },
+
+        async viewBackupChanges(backup, tab = 'joined') {
+            if (!this.canViewChanges(backup)) {
+                return;
+            }
+
+            this.changesTab = tab;
+            this.changesDetail = {
+                current_backup: backup,
+                previous_backup: null,
+                joined: [],
+                left: [],
+                notice: null,
+            };
+            this.showChangesModal = true;
+            this.changesLoading = true;
+
+            try {
+                const res = await fetch(`/api/backups/${backup.id}/changes`);
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || '获取成员变动失败');
+                }
+
+                this.changesDetail = await res.json();
+            } catch (e) {
+                this.showChangesModal = false;
+                window.showToast('加载成员变动失败: ' + e.message, 'error');
+            }
+
+            this.changesLoading = false;
+        },
+
+        activeChangeMembers() {
+            if (!this.changesDetail) {
+                return [];
+            }
+
+            return this.changesTab === 'joined'
+                ? (this.changesDetail.joined || [])
+                : (this.changesDetail.left || []);
+        },
+
+        formatChangeMember(member) {
+            if (!member) return '-';
+            return member.display_name || member.card || member.nickname || member.user_id;
         },
         
         confirmDelete(backup) {

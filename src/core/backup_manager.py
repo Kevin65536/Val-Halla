@@ -355,6 +355,121 @@ class BackupManager:
                 select(BackupMember).where(BackupMember.backup_id == backup_id)
             )
             return list(result.scalars().all())
+
+    def _build_change_member(
+        self,
+        user_id: int,
+        history: Optional[MemberHistory] = None,
+        snapshot: Optional[BackupMember] = None,
+    ) -> Dict[str, Any]:
+        """构造成员变动详情"""
+        if snapshot and snapshot.card:
+            display_name = snapshot.card
+        elif history and history.nickname:
+            display_name = history.nickname
+        elif snapshot and snapshot.nickname:
+            display_name = snapshot.nickname
+        else:
+            display_name = str(user_id)
+
+        return {
+            "user_id": user_id,
+            "display_name": display_name,
+            "nickname": history.nickname if history else (snapshot.nickname if snapshot else ""),
+            "card": snapshot.card if snapshot else None,
+            "role": snapshot.role if snapshot else None,
+            "title": snapshot.title if snapshot else None,
+            "level": snapshot.level if snapshot else None,
+            "join_time": snapshot.join_time if snapshot else None,
+            "last_sent_time": snapshot.last_sent_time if snapshot else None,
+            "timestamp": history.timestamp.isoformat() if history and history.timestamp else None,
+        }
+
+    async def get_backup_changes(self, backup_id: int) -> Dict[str, Any]:
+        """获取指定备份的成员变动明细"""
+        async with db_manager.get_async_session() as session:
+            result = await session.execute(
+                select(Backup).where(Backup.id == backup_id)
+            )
+            backup = result.scalar_one_or_none()
+            if not backup:
+                raise ValueError("备份不存在")
+
+            previous_result = await session.execute(
+                select(Backup)
+                .where(
+                    Backup.group_id == backup.group_id,
+                    Backup.status == BackupStatus.SUCCESS.value,
+                    Backup.id < backup.id,
+                )
+                .order_by(Backup.id.desc())
+                .limit(1)
+            )
+            previous_backup = previous_result.scalar_one_or_none()
+
+            history_result = await session.execute(
+                select(MemberHistory)
+                .where(MemberHistory.backup_id == backup_id)
+                .order_by(MemberHistory.user_id.asc())
+            )
+            histories = list(history_result.scalars().all())
+
+        current_members = {
+            member.user_id: member
+            for member in await self.get_backup_members(backup_id)
+        }
+        previous_members: Dict[int, BackupMember] = {}
+        if previous_backup:
+            previous_members = {
+                member.user_id: member
+                for member in await self.get_backup_members(previous_backup.id)
+            }
+
+        joined_history = {
+            history.user_id: history
+            for history in histories
+            if history.action == "join"
+        }
+        left_history = {
+            history.user_id: history
+            for history in histories
+            if history.action == "leave"
+        }
+
+        summary = backup.summary or {}
+        joined_ids = summary.get("joined") or list(joined_history.keys())
+        left_ids = summary.get("left") or list(left_history.keys())
+
+        joined = [
+            self._build_change_member(
+                user_id,
+                joined_history.get(user_id),
+                current_members.get(user_id),
+            )
+            for user_id in joined_ids
+        ]
+        left = [
+            self._build_change_member(
+                user_id,
+                left_history.get(user_id),
+                previous_members.get(user_id),
+            )
+            for user_id in left_ids
+        ]
+
+        notice = None
+        if backup.status != BackupStatus.SUCCESS.value:
+            notice = "该备份未成功完成，暂无可用的成员变动明细。"
+        elif not previous_backup:
+            notice = "暂无上一份成功备份，以下信息基于本次备份记录到的成员变更历史。"
+
+        return {
+            "current_backup": backup.to_dict(),
+            "previous_backup": previous_backup.to_dict() if previous_backup else None,
+            "joined": joined,
+            "left": left,
+            "notice": notice,
+        }
     
     async def load_backup_file(self, file_path: str) -> Dict[str, Any]:
         """

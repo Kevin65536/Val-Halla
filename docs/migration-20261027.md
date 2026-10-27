@@ -50,3 +50,10 @@
 - 镜像：`valhalla-napcat-preserved:20261027`、`mlikiowa/napcat-docker:latest`。
 
 清理后 Docker 容器列表为空；其他未关联的卷和镜像未清理。原生服务继续在线，当前数据库、群成员备份及原生账号数据未受影响。历史 Git 提交不会恢复已删除的 Docker 环境。
+
+## 停机交付与 PR 记录（2026-10-27）
+
+- 按用户要求执行桌面启动器的 `stop`，停止本项目的 WebUI 和原生 NapCat；进程记录检查无运行实例，8080、15701、16098 端口无监听。
+- 重新启动 Docker 引擎并运行 `docker ps -a`，确认所有状态的容器数量均为 0。
+- 原迁移提交 `1458ad7`、`58302ad`、`08b4cf0` 及清理记录 `a1cdb9d` 已直接推送到 `main`，当时未创建 PR。
+- 本节通过 `feat/native-napcat-launcher` 向 `main` 提交 PR，记录后续停机验收。该 PR 的新增差异是验收文档，不追溯改变此前迁移提交的合并方式。

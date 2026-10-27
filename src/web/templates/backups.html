@@ -35,10 +35,10 @@
             <div class="col-span-1">ID</div>
             <div class="col-span-2">群号</div>
             <div class="col-span-2">类型</div>
-            <div class="col-span-2 text-center">成员数</div>
+            <div class="col-span-1 text-center">成员数</div>
             <div class="col-span-2 text-center">变动</div>
             <div class="col-span-2">时间</div>
-            <div class="col-span-1 text-right">操作</div>
+            <div class="col-span-2 text-right">操作</div>
         </div>
         
         <!-- 加载中 -->
@@ -91,7 +91,7 @@
                         </div>
                         
                         <!-- 成员数 -->
-                        <div class="col-span-2 text-center">
+                        <div class="col-span-1 text-center">
                             <span class="text-gray-800 font-medium" x-text="backup.member_count"></span>
                             <span class="text-gray-400"> 人</span>
                         </div>
@@ -117,7 +117,7 @@
                         <div class="col-span-2 text-sm text-gray-500" x-text="formatTime(backup.created_at)"></div>
                         
                         <!-- 操作 -->
-                        <div class="col-span-1 flex items-center justify-end gap-1">
+                        <div class="col-span-2 flex items-center justify-end gap-1">
                             <a x-show="backup.status === 'success'" :href="'/api/backups/' + backup.id + '/download'"
                                class="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="下载备份" aria-label="下载备份">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg>

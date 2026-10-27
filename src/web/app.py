@@ -2,17 +2,25 @@
 Val-Halla Web UI 应用
 FastAPI 后端 + Jinja2 模板前端
 """
-import os
-import asyncio
+import io
+import hashlib
+from contextlib import asynccontextmanager
+from typing import Literal
+import qrcode
+import qrcode.image.svg
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from src.application import initialize, create_client
+from src.runtime.napcat import NapCatRuntime, ManagementError
+from src.runtime.connection import ConnectionService
+from src.utils.config import PROJECT_ROOT, project_path
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict
 
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi import FastAPI, Request, HTTPException, Query
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.api.onebot import OneBotAPI
 from src.core.backup_manager import BackupManager
@@ -20,18 +28,45 @@ from src.core.rebuild_manager import RebuildManager
 from src.models.database import DatabaseManager
 from src.models.backup import BackupType
 from src.utils.logger import get_logger, setup_logger
-from src.utils.config import config_manager
 
 # 设置日志
 setup_logger()
 logger = get_logger(__name__)
 
+@asynccontextmanager
+async def lifespan(app):
+    await startup()
+    try:
+        yield
+    finally:
+        await shutdown()
+
+
 # 应用实例
-app = FastAPI(
+app = FastAPI(lifespan=lifespan,
     title="Val-Halla",
-    description="QQ群成员自动备份与一键重建工具",
-    version="1.0.0"
+    description="QQ群成员备份与信息恢复工具",
+    version="2.0.0"
 )
+
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver", "[::1]"])
+
+
+@app.middleware("http")
+async def local_requests(request: Request, call_next):
+    # Local lifecycle/mutation endpoints must not accept cross-site browser requests.
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin")
+        expected = f"{request.url.scheme}://{request.url.netloc}"
+        if origin and origin != expected:
+            return JSONResponse({"detail": "不接受跨站操作"}, status_code=403)
+        if request.method != "DELETE" and request.headers.get("content-type", "").split(";")[0] != "application/json":
+            return JSONResponse({"detail": "需要 application/json 请求"}, status_code=415)
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 
 # 模板目录
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -54,6 +89,8 @@ class AppState:
         self.backup_manager: Optional[BackupManager] = None
         self.rebuild_manager: Optional[RebuildManager] = None
         self.config: Dict = {}
+        self.runtime = None
+        self.connection = None
         self.connected: bool = False
         self.login_info: Dict = {}
 
@@ -62,44 +99,13 @@ state = AppState()
 
 # ==================== 启动/关闭事件 ====================
 
-@app.on_event("startup")
 async def startup():
-    """应用启动时初始化"""
-    logger.info("Val-Halla WebUI 启动中...")
-    
-    # 加载配置
-    try:
-        state.config = config_manager.load()
-    except FileNotFoundError:
-        from src.utils.config import Config
-        state.config = Config()
-    
-    # 初始化数据库 - 使用全局实例
+    state.config = initialize()
     from src.models import db_manager
-    db_manager.init_sqlite("data/database/valhalla.db")
-    db_manager.create_tables()
     state.db = db_manager
-    
-    # 初始化 OneBot API
-    onebot_cfg = state.config.onebot
-    protocol = (onebot_cfg.protocol or "http").lower().strip()
-    if protocol in {"websocket", "ws"}:
-        host = onebot_cfg.websocket.host
-        port = onebot_cfg.websocket.port
-        protocol = "websocket"
-    else:
-        host = onebot_cfg.http.host
-        port = onebot_cfg.http.port
-        protocol = "http"
-
-    state.onebot = OneBotAPI(
-        host=host,
-        port=port,
-        protocol=protocol,
-        access_token=onebot_cfg.access_token,
-        timeout=onebot_cfg.api_timeout
-    )
-    
+    state.onebot = create_client(state.config)
+    state.runtime = NapCatRuntime(state.config)
+    state.connection = ConnectionService(state.config, state.onebot, state.runtime)
     # 初始化管理器
     backup_cfg = state.config.backup
     state.backup_manager = BackupManager(
@@ -118,36 +124,33 @@ async def startup():
         restore_titles=rebuild_cfg.restore_titles
     )
     
-    # 尝试连接
-    await check_connection()
-    
     logger.info("Val-Halla WebUI 启动完成")
 
 
-@app.on_event("shutdown")
 async def shutdown():
-    """应用关闭时清理"""
-    logger.info("Val-Halla WebUI 关闭中...")
+    await state.onebot.close()
+    await state.runtime.close()
+    await state.db.close()
 
 
-async def check_connection():
-    """检查 OneBot 连接状态"""
-    try:
-        info = await state.onebot.get_login_info()
-        state.connected = True
-        state.login_info = info
-        logger.info(f"OneBot 连接成功: {info.get('nickname')}({info.get('user_id')})")
-    except Exception as e:
-        state.connected = False
-        state.login_info = {}
-        logger.warning(f"OneBot 连接失败: {e}")
+async def check_connection(force=False):
+    result = await state.connection.check(force=force)
+    state.connected = result["connected"]
+    state.login_info = result["login_info"]
+    return result
+
+
+async def require_connection():
+    result = await check_connection(force=True)
+    if not result["connected"]:
+        raise HTTPException(status_code=503, detail=result["message"])
 
 
 # ==================== API 数据模型 ====================
 
 class BackupRequest(BaseModel):
-    group_id: int
-    backup_type: str = "full"
+    group_id: int = Field(gt=0)
+    backup_type: Literal["full", "incremental"] = "full"
 
 class RebuildRequest(BaseModel):
     group_id: int  # 备份来源群号
@@ -195,34 +198,62 @@ async def settings_page(request: Request):
 
 # ==================== API 路由 ====================
 
+@app.get("/api/health")
+async def health():
+    return {"app": "Val-Halla", "project": hashlib.sha256(str(PROJECT_ROOT).encode()).hexdigest()[:16],
+            "version": "2.0.0", "runtime": state.config.runtime.mode}
+
+
 @app.get("/api/status")
 async def api_status():
-    """获取系统状态"""
-    await check_connection()
-    
-    version_info = {}
-    if state.connected:
-        try:
-            version_info = await state.onebot.get_version_info()
-        except:
-            pass
-    
-    return {
-        "connected": state.connected,
-        "login_info": state.login_info,
-        "version_info": version_info,
-        "config": {
-            "host": state.config.onebot.http.host,
-            "port": state.config.onebot.http.port
-        }
-    }
+    return await check_connection()
+
+
+@app.post("/api/runtime/start")
+async def runtime_start():
+    try:
+        result = await state.runtime.start()
+        state.connection.invalidate()
+        return result
+    except (ManagementError, OSError) as error:
+        raise HTTPException(409, str(error)) from error
+
+
+@app.post("/api/runtime/refresh-qr")
+async def runtime_refresh():
+    try:
+        await state.runtime.refresh_qrcode()
+        state.connection.invalidate()
+        return {"success": True}
+    except Exception as error:
+        raise HTTPException(503, "刷新二维码失败，请检查 NapCat 登录状态。") from error
+
+
+@app.post("/api/runtime/quick-login")
+async def runtime_quick_login():
+    try:
+        await state.runtime.quick_login()
+        state.connection.invalidate()
+        return {"success": True}
+    except Exception as error:
+        raise HTTPException(503, "快速登录失败，请改用扫码登录。") from error
+
+
+@app.get("/api/runtime/qrcode")
+async def runtime_qrcode():
+    try:
+        value = await state.runtime.qrcode()
+        output = io.BytesIO()
+        qrcode.make(value, image_factory=qrcode.image.svg.SvgPathImage, box_size=8, border=4).save(output)
+        return Response(output.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+    except Exception as error:
+        raise HTTPException(503, "二维码暂不可用，请刷新登录状态。") from error
 
 
 @app.get("/api/groups")
 async def api_groups():
     """获取群列表"""
-    if not state.connected:
-        raise HTTPException(status_code=503, detail="OneBot 未连接")
+    await require_connection()
     
     try:
         groups = await state.onebot.get_group_list()
@@ -234,8 +265,7 @@ async def api_groups():
 @app.get("/api/groups/{group_id}")
 async def api_group_info(group_id: int):
     """获取群详情"""
-    if not state.connected:
-        raise HTTPException(status_code=503, detail="OneBot 未连接")
+    await require_connection()
     
     try:
         info = await state.onebot.get_group_info(group_id)
@@ -263,8 +293,7 @@ async def api_group_info(group_id: int):
 @app.get("/api/groups/{group_id}/members")
 async def api_group_members(group_id: int):
     """获取群成员列表"""
-    if not state.connected:
-        raise HTTPException(status_code=503, detail="OneBot 未连接")
+    await require_connection()
     
     try:
         members = await state.onebot.get_group_member_list(group_id)
@@ -274,10 +303,9 @@ async def api_group_members(group_id: int):
 
 
 @app.post("/api/backup")
-async def api_backup(req: BackupRequest, background_tasks: BackgroundTasks):
+async def api_backup(req: BackupRequest):
     """创建备份"""
-    if not state.connected:
-        raise HTTPException(status_code=503, detail="OneBot 未连接")
+    await require_connection()
     
     try:
         # 将字符串转换为 BackupType 枚举
@@ -301,7 +329,7 @@ async def api_backup(req: BackupRequest, background_tasks: BackgroundTasks):
 
 
 @app.get("/api/backups")
-async def api_backups(group_id: Optional[int] = None, limit: int = 50):
+async def api_backups(group_id: Optional[int] = None, limit: int = Query(50, ge=1, le=1000)):
     """获取备份历史"""
     try:
         backups = await state.backup_manager.get_backup_history(
@@ -310,11 +338,28 @@ async def api_backups(group_id: Optional[int] = None, limit: int = 50):
         )
         # 转换为字典格式
         backups_data = [b.to_dict() for b in backups]
-        return {"backups": backups_data, "total": len(backups_data)}
+        from sqlalchemy import select, func
+        from src.models.backup import Backup
+        query = select(func.count()).select_from(Backup)
+        if group_id is not None:
+            query = query.where(Backup.group_id == group_id)
+        async with state.db.get_async_session() as session:
+            total = (await session.execute(query)).scalar_one()
+        return {"backups": backups_data, "total": total}
     except Exception as e:
         import traceback
         logger.error(f"获取备份历史失败: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/archived-groups")
+async def archived_groups():
+    """Filter historical snapshots even when QQ is offline or the account left a group."""
+    from sqlalchemy import select
+    from src.models import Group, Backup
+    async with state.db.get_async_session() as session:
+        groups = (await session.execute(select(Group).join(Backup, Backup.group_id == Group.group_id).distinct())).scalars().all()
+        return {"groups": [{"group_id": group.group_id, "group_name": group.group_name} for group in groups]}
 
 
 @app.get("/api/backups/{backup_id}")
@@ -329,6 +374,21 @@ async def api_backup_detail(backup_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/backups/{backup_id}/download")
+async def download_backup(backup_id: int):
+    from sqlalchemy import select
+    from src.models.backup import Backup
+    async with state.db.get_async_session() as session:
+        backup = (await session.execute(select(Backup).where(Backup.id == backup_id))).scalar_one_or_none()
+        if not backup or backup.status != "success" or not backup.file_path:
+            raise HTTPException(404, "备份文件不存在")
+        path = project_path(backup.file_path).resolve()
+        root = project_path(state.config.backup.backup_dir).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise HTTPException(404, "备份文件不存在")
+        return FileResponse(path, filename=path.name, media_type="application/octet-stream")
 
 
 @app.get("/api/backups/{backup_id}/changes")
@@ -355,8 +415,7 @@ async def api_delete_backup(backup_id: int):
 @app.post("/api/rebuild")
 async def api_rebuild(req: RebuildRequest):
     """执行群重建"""
-    if not state.connected:
-        raise HTTPException(status_code=503, detail="OneBot 未连接")
+    await require_connection()
     
     try:
         # 如果未指定目标群，则使用备份来源群
@@ -380,8 +439,7 @@ async def api_rebuild(req: RebuildRequest):
 @app.get("/api/export/{group_id}")
 async def api_export(group_id: int, format: str = "json"):
     """导出群成员数据"""
-    if not state.connected:
-        raise HTTPException(status_code=503, detail="OneBot 未连接")
+    await require_connection()
     
     try:
         members = await state.onebot.get_group_member_list(group_id)
@@ -389,7 +447,7 @@ async def api_export(group_id: int, format: str = "json"):
         if format == "json":
             import json
             filename = f"members_{group_id}.json"
-            filepath = Path("export") / filename
+            filepath = project_path("export") / filename
             filepath.parent.mkdir(parents=True, exist_ok=True)
             
             with open(filepath, "w", encoding="utf-8") as f:
@@ -403,7 +461,7 @@ async def api_export(group_id: int, format: str = "json"):
         elif format == "csv":
             import csv
             filename = f"members_{group_id}.csv"
-            filepath = Path("export") / filename
+            filepath = project_path("export") / filename
             filepath.parent.mkdir(parents=True, exist_ok=True)
             
             with open(filepath, "w", encoding="utf-8-sig", newline="") as f:
@@ -428,7 +486,7 @@ async def api_export(group_id: int, format: str = "json"):
 
 # ==================== 运行入口 ====================
 
-def run_webui(host: str = "0.0.0.0", port: int = 8080):
+def run_webui(host: str = "127.0.0.1", port: int = 8080):
     """运行 WebUI"""
     import uvicorn
     uvicorn.run(app, host=host, port=port)

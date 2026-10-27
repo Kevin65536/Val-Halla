@@ -85,3 +85,13 @@ members_*.json
 
 # export files
 export/
+
+# Local runtimes, credentials and migration snapshots
+/runtime/
+/work/
+/secrets/
+.playwright-mcp/
+.serena/
+config/config.yaml.*
+node_modules/
+.ruff_cache/

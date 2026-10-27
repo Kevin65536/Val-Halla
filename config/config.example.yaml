@@ -1,0 +1,23 @@
+# External OneBot example. Native Windows setup uses activate_native.py.
+onebot:
+  protocol: http
+  http:
+    host: 127.0.0.1
+    port: 15701
+  access_token: ""
+  api_timeout: 30
+runtime:
+  mode: external
+  account: ""
+database:
+  type: sqlite
+  sqlite:
+    path: data/database/valhalla.db
+backup:
+  auto_backup: false
+  compression: true
+  encryption: false
+  backup_dir: data/backups
+web_api:
+  host: 127.0.0.1
+  port: 8080

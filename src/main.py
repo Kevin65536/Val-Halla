@@ -14,10 +14,9 @@ from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from src.utils.config import get_config, config_manager
-from src.utils.logger import setup_logger, get_logger
-from src.api.onebot import OneBotAPI
-from src.models import init_database, db_manager
+from src.utils.config import project_path
+from src.utils.logger import get_logger
+from src.models import db_manager
 from src.core.backup_manager import BackupManager
 from src.core.rebuild_manager import RebuildManager
 
@@ -26,55 +25,23 @@ logger = get_logger(__name__)
 console = Console()
 
 
-def init_app():
-    """初始化应用"""
-    try:
-        config = config_manager.load()
-    except FileNotFoundError:
-        console.print("[yellow]配置文件不存在，使用默认配置[/yellow]")
-        from src.utils.config import Config
-        config = Config()
-    
-    # 设置日志
-    setup_logger(
-        level=config.logging.level,
-        log_file=config.logging.file,
-        max_size=config.logging.max_size,
-        backup_count=config.logging.backup_count,
-        console=config.logging.console
-    )
-    
-    # 初始化数据库
-    init_database(config.database)
-    
-    return config
+from src.application import initialize as init_app, create_client
 
 
-def create_client(config) -> OneBotAPI:
-    """创建 OneBot 客户端"""
-    protocol = (config.onebot.protocol or "http").lower().strip()
-    if protocol in {"websocket", "ws"}:
-        host = config.onebot.websocket.host
-        port = config.onebot.websocket.port
-        protocol = "websocket"
-    else:
-        host = config.onebot.http.host
-        port = config.onebot.http.port
-        protocol = "http"
-
-    return OneBotAPI(
-        host=host,
-        port=port,
-        protocol=protocol,
-        access_token=config.onebot.access_token,
-        timeout=config.onebot.api_timeout
-    )
+def run_command(coroutine, client):
+    async def run():
+        try:
+            await coroutine
+        finally:
+            await client.close()
+            await db_manager.close()
+    asyncio.run(run())
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="Val-Halla")
+@click.version_option(version="2.0.0", prog_name="Val-Halla")
 def cli():
-    """Val-Halla - QQ群成员自动备份与一键重建工具"""
+    """Val-Halla - QQ群成员备份与信息恢复工具"""
     pass
 
 
@@ -137,7 +104,7 @@ def status():
             except Exception as e:
                 console.print(f"[red]获取群列表失败: {str(e)}[/red]")
     
-    asyncio.run(check_status())
+    run_command(check_status(), client)
 
 
 @cli.command()
@@ -187,7 +154,7 @@ def info(group_id: int, no_cache: bool):
         except Exception as e:
             console.print(f"[red]获取信息失败: {str(e)}[/red]")
     
-    asyncio.run(get_info())
+    run_command(get_info(), client)
 
 
 @cli.command()
@@ -243,8 +210,9 @@ def backup(group_id: int, backup_type: str, note: str):
         except Exception as e:
             console.print(f"[red]❌ 备份失败: {str(e)}[/red]")
             logger.exception("备份异常")
+            raise click.ClickException(str(e)) from e
     
-    asyncio.run(do_backup())
+    run_command(do_backup(), client)
 
 
 @cli.command()
@@ -294,7 +262,7 @@ def history(group_id: int, limit: int):
         except Exception as e:
             console.print(f"[red]获取历史失败: {str(e)}[/red]")
     
-    asyncio.run(show_history())
+    run_command(show_history(), client)
 
 
 @cli.command()
@@ -391,7 +359,7 @@ def rebuild(backup_id: int, target_group_id: int, dry_run: bool):
             console.print(f"[red]重建失败: {str(e)}[/red]")
             logger.exception("重建异常")
     
-    asyncio.run(do_rebuild())
+    run_command(do_rebuild(), client)
 
 
 @cli.command()
@@ -417,6 +385,8 @@ def export(group_id: int, export_format: str, output: str):
             else:
                 filename = output
             
+            filename = project_path(filename)
+            filename.parent.mkdir(parents=True, exist_ok=True)
             if export_format == "json":
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(members, f, ensure_ascii=False, indent=2)
@@ -432,11 +402,11 @@ def export(group_id: int, export_format: str, output: str):
         except Exception as e:
             console.print(f"[red]导出失败: {str(e)}[/red]")
     
-    asyncio.run(do_export())
+    run_command(do_export(), client)
 
 
 @cli.command()
-@click.option("--host", default="0.0.0.0", help="监听地址")
+@click.option("--host", default="127.0.0.1", help="监听地址")
 @click.option("--port", default=8080, help="监听端口")
 def webui(host: str, port: int):
     """启动 Web UI"""

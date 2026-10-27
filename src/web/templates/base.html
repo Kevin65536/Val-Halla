@@ -6,10 +6,10 @@
     <title>{% block title %}Val-Halla{% endblock %}</title>
     
     <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/vendor/tailwind.css">
     
     <!-- Alpine.js -->
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="/static/vendor/alpine.min.js"></script>
     
     <!-- 自定义样式 -->
     <style>
@@ -79,7 +79,7 @@
     {% block head %}{% endblock %}
 </head>
 <body class="bg-gray-50 min-h-screen">
-    <div x-data="app()" x-init="init()" class="flex min-h-screen">
+    <div x-data="app()" class="flex min-h-screen">
         <!-- 侧边栏 -->
         <aside class="w-64 gradient-bg text-white flex-shrink-0 flex flex-col">
             <!-- Logo -->
@@ -158,6 +158,28 @@
             
             <!-- 页面内容 -->
             <div class="p-6">
+                <section x-show="!status.connected" x-cloak class="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-5" aria-live="polite">
+                    <div class="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                            <h2 class="text-lg font-semibold text-gray-800">连接与登录</h2>
+                            <p class="mt-2 text-gray-700" x-text="status.message || '正在检查连接…'"></p>
+                            <p class="mt-1 text-sm text-gray-500" x-show="status.expected_account" x-text="'登录账号：' + status.expected_account"></p>
+                            <p class="mt-1 text-sm text-gray-500">历史备份可以随时查看和下载。</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button x-show="status.mode === 'native' && ['stopped','unreachable'].includes(status.stage)" @click="runtimeAction('start')" :disabled="runtimeBusy" class="rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50">启动服务</button>
+                            <button x-show="status.mode === 'native' && ['waiting_qr','offline'].includes(status.stage)" @click="runtimeAction('quick-login')" :disabled="runtimeBusy" class="rounded-lg bg-white px-4 py-2 text-blue-700 border disabled:opacity-50">尝试快速登录</button>
+                            <button x-show="status.mode === 'native' && ['waiting_qr','offline'].includes(status.stage)" @click="runtimeAction('refresh-qr')" :disabled="runtimeBusy" class="rounded-lg bg-white px-4 py-2 text-blue-700 border disabled:opacity-50">刷新二维码</button>
+                            <button @click="refreshStatus()" :disabled="loading" class="rounded-lg bg-white px-4 py-2 text-gray-700 border">检查状态</button>
+                        </div>
+                    </div>
+                    <template x-if="status.qr_available">
+                        <div class="mt-5 flex flex-wrap items-center gap-5">
+                            <img :src="'/api/runtime/qrcode?revision=' + status.qr_key" alt="手机 QQ 登录二维码" width="240" height="240" class="rounded-lg bg-white p-2">
+                            <p class="text-sm text-gray-700">使用手机 QQ 扫描并确认。<br>登录成功后会自动显示群列表。</p>
+                        </div>
+                    </template>
+                </section>
                 {% block content %}{% endblock %}
             </div>
         </main>
@@ -192,6 +214,13 @@
             window.dispatchEvent(event);
         };
         
+        async function apiAction(url) {
+            const response = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || '操作失败');
+            return data;
+        }
+
         function app() {
             return {
                 status: {
@@ -201,6 +230,7 @@
                     config: {}
                 },
                 loading: false,
+                runtimeBusy: false,
                 currentTime: '',
                 toast: {
                     show: false,
@@ -212,8 +242,7 @@
                     this.refreshStatus();
                     this.updateTime();
                     setInterval(() => this.updateTime(), 1000);
-                    // 每30秒刷新状态
-                    setInterval(() => this.refreshStatus(), 30000);
+                    setInterval(() => { if (!document.hidden) this.refreshStatus(); }, 5000);
                     
                     // 监听全局 Toast 事件
                     window.addEventListener('show-toast', (e) => {
@@ -226,16 +255,32 @@
                 },
                 
                 async refreshStatus() {
+                    if (this.loading) return;
                     this.loading = true;
                     try {
                         const res = await fetch('/api/status');
+                        if (!res.ok) throw new Error('状态检查失败');
+                        const previous = this.status.connected;
                         this.status = await res.json();
+                        if (!previous && this.status.connected) window.dispatchEvent(new Event('connection-ready'));
                     } catch (e) {
+                        this.status = {connected: false, stage: 'app_unreachable', message: '管理界面服务已断开，请重新运行 Start.cmd。', config: {}};
                         console.error('获取状态失败:', e);
                     }
                     this.loading = false;
                 },
                 
+                async runtimeAction(action) {
+                    if (this.runtimeBusy) return;
+                    this.runtimeBusy = true;
+                    try {
+                        await apiAction('/api/runtime/' + action);
+                        this.showToast('操作已提交，正在更新登录状态。', 'info');
+                        await this.refreshStatus();
+                    } catch (error) { this.showToast(error.message, 'error'); }
+                    finally { this.runtimeBusy = false; }
+                },
+
                 showToast(message, type = 'info', duration = 3000) {
                     this.toast = { show: true, message, type };
                     setTimeout(() => {

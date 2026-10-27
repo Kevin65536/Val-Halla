@@ -4,7 +4,7 @@
 {% block page_title %}仪表盘{% endblock %}
 
 {% block content %}
-<div x-data="dashboard()" x-init="init()">
+<div x-data="dashboard()">
     <!-- 统计卡片 -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <!-- 连接状态卡片 -->
@@ -171,6 +171,7 @@ function dashboard() {
         },
         
         async init() {
+            window.addEventListener('connection-ready', () => this.loadGroups());
             await Promise.all([
                 this.loadGroups(),
                 this.loadBackups()

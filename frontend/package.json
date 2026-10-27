@@ -1,0 +1,11 @@
+{
+  "name": "valhalla-local-assets",
+  "private": true,
+  "scripts": {
+    "build": "tailwindcss -c tailwind.config.js -i input.css -o ../src/web/static/vendor/tailwind.css --minify && node vendor.cjs"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17",
+    "alpinejs": "3.14.9"
+  }
+}

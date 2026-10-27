@@ -4,7 +4,7 @@
 {% block page_title %}备份历史{% endblock %}
 
 {% block content %}
-<div x-data="backupsPage()" x-init="init()">
+<div x-data="backupsPage()">
     <!-- 筛选栏 -->
     <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
         <div class="flex flex-col md:flex-row gap-4">
@@ -118,6 +118,10 @@
                         
                         <!-- 操作 -->
                         <div class="col-span-1 flex items-center justify-end gap-1">
+                            <a x-show="backup.status === 'success'" :href="'/api/backups/' + backup.id + '/download'"
+                               class="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="下载备份" aria-label="下载备份">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg>
+                            </a>
                             <button @click="viewBackup(backup)" 
                                     class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
                                     title="查看详情">
@@ -446,7 +450,7 @@ function backupsPage() {
         
         async loadGroups() {
             try {
-                const res = await fetch('/api/groups');
+                const res = await fetch('/api/archived-groups');
                 if (res.ok) {
                     const data = await res.json();
                     this.groups = data.groups || [];

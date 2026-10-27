@@ -2,10 +2,17 @@
 配置管理模块
 """
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional, Literal
+import os
 import yaml
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def project_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 class OneBotHttpConfig(BaseModel):
@@ -30,6 +37,21 @@ class OneBotConfig(BaseModel):
     websocket: OneBotWebSocketConfig = Field(default_factory=OneBotWebSocketConfig)
     access_token: str = ""
     api_timeout: int = 30
+
+    @property
+    def endpoint(self):
+        websocket = self.protocol.lower() in {"websocket", "ws"}
+        target = self.websocket if websocket else self.http
+        return ("websocket" if websocket else "http", target.host, target.port)
+
+
+class RuntimeConfig(BaseModel):
+    mode: Literal["native", "external"] = "external"
+    directory: str = "runtime/napcat"
+    account: str = ""
+    management_url: str = "http://127.0.0.1:16098"
+    management_token: str = ""
+    startup_timeout: int = Field(default=45, ge=5, le=180)
 
 
 class SQLiteConfig(BaseModel):
@@ -57,7 +79,7 @@ class DatabaseConfig(BaseModel):
 
 class BackupConfig(BaseModel):
     """备份配置"""
-    auto_backup: bool = True
+    auto_backup: bool = False
     interval: int = 3600
     backup_type: str = "incremental"
     max_backups: int = 30
@@ -154,8 +176,8 @@ class CORSConfig(BaseModel):
 class WebAPIConfig(BaseModel):
     """Web API 配置"""
     enabled: bool = False
-    host: str = "0.0.0.0"
-    port: int = 8000
+    host: str = "127.0.0.1"
+    port: int = 8080
     api_key: str = ""
     docs: bool = True
     cors: CORSConfig = Field(default_factory=CORSConfig)
@@ -184,6 +206,7 @@ class AdvancedConfig(BaseModel):
 class Config(BaseModel):
     """主配置"""
     onebot: OneBotConfig = Field(default_factory=OneBotConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     backup: BackupConfig = Field(default_factory=BackupConfig)
     rebuild: RebuildConfig = Field(default_factory=RebuildConfig)
@@ -197,8 +220,8 @@ class Config(BaseModel):
 class ConfigManager:
     """配置管理器"""
     
-    def __init__(self, config_path: str = "config/config.yaml"):
-        self.config_path = Path(config_path)
+    def __init__(self, config_path: str = None):
+        self.config_path = project_path(config_path or os.environ.get("VALHALLA_CONFIG", "config/config.yaml"))
         self._config: Optional[Config] = None
     
     def load(self) -> Config:
@@ -207,7 +230,7 @@ class ConfigManager:
             raise FileNotFoundError(f"配置文件不存在: {self.config_path}")
         
         with open(self.config_path, 'r', encoding='utf-8') as f:
-            config_dict = yaml.safe_load(f)
+            config_dict = yaml.safe_load(f) or {}
         
         self._config = Config(**config_dict)
         return self._config
@@ -216,8 +239,10 @@ class ConfigManager:
         """保存配置"""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(self.config_path, 'w', encoding='utf-8') as f:
+        temporary = self.config_path.with_suffix(".yaml.tmp")
+        with open(temporary, 'w', encoding='utf-8') as f:
             yaml.dump(config.model_dump(), f, default_flow_style=False, allow_unicode=True)
+        temporary.replace(self.config_path)
         
         self._config = config
     

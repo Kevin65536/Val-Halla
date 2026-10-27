@@ -2,11 +2,16 @@
 群组数据模型
 """
 from datetime import datetime
-from typing import Optional, List
+from typing import TYPE_CHECKING, Optional, List
 from sqlalchemy import String, Integer, BigInteger, DateTime, Text, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+
+
+if TYPE_CHECKING:
+    from src.models.member import Member
+    from src.models.backup import Backup
 
 
 class Group(Base):

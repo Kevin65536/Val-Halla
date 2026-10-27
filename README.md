@@ -1,264 +1,107 @@
-# Val-Halla - QQ群成员自动备份与一键重建工具
+# Val-Halla
 
-## 项目简介
+QQ群成员快照、变动对比和导出工具。Windows 默认使用 **Python + 独立 NapCat Node 运行目录**，日常使用不需要 Docker Desktop。
 
-Val-Halla是一个基于OneBot 11协议的QQ群管理工具,支持:
-- 🔄 **群成员备份**: 备份群成员列表及详细信息（名片、头衔、权限等）
-- 🔄 **信息恢复**: 恢复已在群内成员的名片、头衔、管理员权限
-- 📊 **数据导出**: 导出群成员数据为 JSON/CSV 格式
-- 🌐 **Web管理界面**: 可视化管理备份和恢复操作
-- ⚙️ **灵活配置**: 支持多群管理、备份策略配置
+备份包括 QQ 号、昵称、名片、角色、头衔、入群和最后发言时间，**不包含聊天消息、群文件或相册**。
 
-> ⚠️ **重要提示**: 由于 OneBot 11 标准协议限制，**不支持直接邀请成员入群**。重建功能仅能恢复已在目标群内成员的信息（名片、头衔、管理员权限），无法将不在群内的成员拉入群组。
+## 日常使用
 
-## 技术栈
+1. 双击 `Start.cmd`，启动或复用本项目服务，并在 Chrome Default 配置中打开 `http://127.0.0.1:8080`。
+2. 有效会话自动登录；失效时，页面显示二维码，用手机 QQ 扫码确认。
+3. 选择群并备份，在“备份历史”查看变化、下载 JSON.gz 文件。
 
-- **后端**: Python 3.10+
-- **QQ协议**: OneBot 11 标准
-- **协议实现**: 支持 NapCat / LLOneBot 等
-- **数据库**: SQLite (轻量级) / PostgreSQL (生产环境)
-- **Web框架**: FastAPI + Jinja2 Templates
-- **前端**: 原生 HTML + CSS + JavaScript
+`Status.cmd` 查看状态，`Stop.cmd` 停止本项目拥有的进程。重复启动不会建立第二份服务；停止时核验路径、参数、工作目录和进程创建时间，避免 PID 复用误伤其他程序。关闭网页不会停止服务。
 
-## 核心功能
+`Start.cmd --no-browser` 只启动后台服务。找不到 Chrome 时输出地址，不切换到其他浏览器。没有新增开机任务或持续进程守护。
 
-### 1. 群成员备份
-- 获取群成员列表 (OneBot API: `get_group_member_list`)
-- 保存成员详细信息:
-  - 基础信息: QQ号、昵称、群名片
-  - 群内信息: 加群时间、最后发言时间、成员等级、角色(群主/管理员/成员)
-  - 扩展信息: 专属头衔
-- 支持全量备份和增量备份
-- 备份历史版本管理
-- 成员变化追踪(新增/退出)
+## 首次安装
 
-### 2. 群信息恢复
-> ⚠️ **注意**: OneBot 11 协议不支持直接邀请成员入群，因此"重建"功能仅限于恢复**已在目标群内**成员的信息。
+适用于 Windows x64、Python 3.11+。代码仓库不包含 QQ 登录数据、令牌和大型运行文件。
 
-- 恢复群名片 (set_group_card)
-- 恢复专属头衔 (set_group_special_title) 
-- 恢复管理员权限 (set_group_admin，需 Bot 为群主)
-- 支持模拟运行(dry run)预览变更
-- 支持跨群恢复（从A群备份恢复到B群）
+1. 安装 Python 3.11，运行 `Setup.cmd`，使用 `requirements-lock.txt` 安装验证过的依赖。
+2. 从 [NapCat 官方 v4.18.38 Release](https://github.com/NapNeko/NapCatQQ/releases/tag/v4.18.38) 下载 `NapCat.Shell.Windows.Node.zip`。此版本已实机验证，内置 QQ 运行时为 `9.9.31-49738`。
+3. 在项目目录执行：
 
-### 3. 数据导出
-- 导出为 JSON 格式
-- 导出为 CSV 格式
-
-### 4. Web 管理界面
-- 仪表盘：系统状态概览
-- 群组管理：查看群列表和成员
-- 备份管理：创建/查看/删除备份
-- 恢复操作：预览和执行恢复
-
-## 项目结构
-
-```
-Val-Halla/
-├── src/
-│   ├── __init__.py
-│   ├── main.py                  # CLI 程序入口
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── backup_manager.py    # 备份管理核心
-│   │   └── rebuild_manager.py   # 信息恢复核心
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── database.py          # 数据库连接
-│   │   ├── group.py             # 群组模型
-│   │   ├── member.py            # 成员模型
-│   │   └── backup.py            # 备份记录模型
-│   ├── api/
-│   │   ├── __init__.py
-│   │   └── onebot.py            # OneBot API 封装
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── config.py            # 配置管理
-│   │   └── logger.py            # 日志工具
-│   └── web/
-│       ├── __init__.py
-│       ├── app.py               # FastAPI Web 应用
-│       ├── static/              # 静态资源
-│       └── templates/           # Jinja2 模板
-│           ├── base.html
-│           ├── index.html
-│           ├── groups.html
-│           ├── backups.html
-│           └── settings.html
-├── config/
-│   └── config.yaml              # 主配置文件
-├── data/
-│   ├── backups/                 # 备份数据
-│   └── database/                # 数据库文件
-├── export/                      # 导出数据
-├── docker/
-│   └── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── README.md
-└── LICENSE
+```powershell
+.\.venv\Scripts\python.exe scripts\install_native.py "下载路径\NapCat.Shell.Windows.Node.zip" --account 你的QQ号
+.\.venv\Scripts\python.exe scripts\activate_native.py
+.\Start.cmd
 ```
 
-## OneBot API 使用说明
+安装器校验 SHA-256：`b88007a373a30deefb387e7cf17911752ff900bce22c534b3da6b644f5c6d0ae`。不匹配时拒绝安装，不覆盖已有运行目录。升级必须先备份并验证新版本。
 
-### 已实现的 API
+运行目录：`runtime/napcat`。安装器解压官方包并创建独立配置，不复制其他机器人的账号或配置。QQ SDK 可能把账号数据保存在系统腾讯用户目录，本机观察到 `Documents/Tencent Files/NapCat/data`；独立程序目录不意味着 QQ 数据完全隔离。
 
-| API 端点 | 用途 | 状态 |
-|---------|------|------|
-| `get_login_info` | 获取登录号信息 | ✅ 已实现 |
-| `get_group_list` | 获取群列表 | ✅ 已实现 |
-| `get_group_info` | 获取群信息 | ✅ 已实现 |
-| `get_group_member_list` | 获取群成员列表 | ✅ 已实现 |
-| `get_group_member_info` | 获取群成员信息 | ✅ 已实现 |
-| `send_group_msg` | 发送群消息 | ✅ 已实现 |
-| `set_group_card` | 设置群名片 | ✅ 已实现 |
-| `set_group_name` | 设置群名 | ✅ 已实现 |
-| `set_group_admin` | 设置群管理员 | ✅ 已实现 |
-| `set_group_special_title` | 设置专属头衔 | ✅ 已实现 |
-| `get_friend_list` | 获取好友列表 | ✅ 已实现 |
-| `get_stranger_info` | 获取陌生人信息 | ✅ 已实现 |
-| `get_status` | 获取运行状态 | ✅ 已实现 |
-| `get_version_info` | 获取版本信息 | ✅ 已实现 |
+默认本机端口：WebUI `8080`、OneBot HTTP `15701`、NapCat 管理接口 `16098`。都绑定 `127.0.0.1`。修改端口需同时更新 `config/config.yaml` 和 NapCat 配置。启动器检测占用和 Windows 保留端口，不修改系统网络设置。
 
-### 不支持的功能
+## 架构与登录
 
-⚠️ **OneBot 11 标准协议不支持以下功能**：
-- ❌ 直接邀请成员入群（没有 `set_group_invite` 等 API）
-- ❌ 批量拉人入群
-
-这意味着"群组重建"功能**无法**将不在群内的成员拉入群组，只能恢复已在群内成员的信息。
-
-## 实现状态
-
-### ✅ 已完成
-
-- [x] 项目结构设计
-- [x] OneBot API 封装 (WebSocket / HTTP 调用)
-- [x] 数据库模型设计 (SQLAlchemy ORM)
-- [x] 群成员备份功能
-  - [x] 获取群成员列表
-  - [x] 数据持久化到数据库
-  - [x] 备份文件保存 (支持 gzip 压缩)
-  - [x] 成员变化追踪 (新增/退出)
-- [x] 信息恢复功能
-  - [x] 恢复群名片
-  - [x] 恢复专属头衔
-  - [x] 恢复管理员权限
-  - [x] 模拟运行 (dry run) 预览
-  - [x] 跨群恢复支持
-- [x] CLI 命令行工具
-- [x] FastAPI Web 界面
-- [x] 数据导出 (JSON/CSV)
-- [x] 配置文件管理
-- [x] 日志系统
-- [x] Docker 支持
-
-### ❌ 不支持/无法实现
-
-- [ ] ~~批量邀请成员入群~~ (OneBot 11 协议限制)
-- [ ] ~~自动定时备份~~ (需要额外实现调度器)
-- [ ] ~~邮件/消息通知~~ (未实现)
-
-## 快速开始
-
-### 1. 安装依赖
-```bash
-pip install -r requirements.txt
+```text
+Start.cmd → src.desktop
+              ├─ 管理本项目 NapCat 进程
+              └─ 启动 Val-Halla WebUI
+                       ├─ ConnectionService：在线状态、账号核验、操作前检查
+                       ├─ NapCatRuntime：管理认证、二维码、快速登录
+                       └─ OneBotAPI → BackupManager → SQLite + JSON.gz
 ```
 
-### 2. 配置 OneBot
-- 安装并配置 NapCat、LLOneBot 或其他 OneBot 11 实现
-- 在 `config/config.yaml` 中填写连接信息
-- 默认按 WebSocket 直连 OneBot；如你的实现暴露的是 HTTP API，请将 `onebot.protocol` 改为 `http`
+页面区分未安装、未启动、启动中、等待扫码、离线、认证失败、账号不匹配和就绪。备份请求重新检查连接，不依赖页面上次轮询。扫码成功后自动刷新群列表，离线时可筛选和下载历史备份。
 
-### 3. 运行程序
+管理接口适配固定的 NapCat 4.18.38。管理 Token 在后端换取短期凭据，不返回给页面；二维码在本地渲染。OneBot HTTP 复用连接，并关闭本地请求的环境代理继承。WebSocket 仍可使用，事件流不会无限延长请求超时。
 
-#### 命令行模式
-```bash
-# 检查连接状态
-python -m src.main status
+## 数据和功能边界
 
-# 查看群信息
-python -m src.main info <群号>
+- 数据库：`data/database/valhalla.db`；备份：`data/backups/<群号>/`。
+- CLI 与 WebUI 共用初始化，配置中的相对路径均以项目根目录解析。
+- 同群并发备份使用跨进程文件锁；空列表和无效／重复编号会中止，不覆盖已有成员快照。
+- 文件先写临时文件再替换；数据库失败会回滚成员变更并记录失败状态。
+- `full`、`incremental` 都保存完整快照；新增／退出为成员差异统计，不是仅保存差量文件。
+- 加密尚未实现；`encryption: true` 会报错，避免明文被标为已加密。
+- 自动定时备份和邮件／QQ 通知尚未实现。保留旧版配置字段不代表功能已启用，默认关闭自动备份。
+- 重建仅恢复已在目标群内的成员信息，不支持邀请入群。实际恢复会修改群内信息，应先预览。迁移验收不执行恢复、不发送群消息。
 
-# 备份群成员
-python -m src.main backup <群号>
+停止服务后备份 `data/`、`config/config.yaml`、`runtime/napcat/napcat/config/`，以及需要保留的 QQ SDK 账号目录。账号和群成员数据不应加入 Git。
 
-# 查看备份历史
-python -m src.main history <群号>
+## CLI
 
-# 从备份恢复（预览模式）
-python -m src.main rebuild <备份ID> <目标群号> --dry-run
-
-# 导出群成员
-python -m src.main export <群号> --format json
+```powershell
+.\.venv\Scripts\python.exe -m src.desktop start --no-browser
+.\.venv\Scripts\python.exe -m src.main status
+.\.venv\Scripts\python.exe -m src.main backup <群号>
+.\.venv\Scripts\python.exe -m src.main history <群号>
+.\.venv\Scripts\python.exe -m src.main export <群号> --format json
+.\.venv\Scripts\python.exe -m src.desktop stop
 ```
 
-#### Web 界面模式
-```bash
-# 启动 Web UI
-python -m src.main webui --host 0.0.0.0 --port 8080
+环境变量 `VALHALLA_CONFIG` 可指定另一份 YAML，用于隔离测试。`/api/health` 检查应用启动状态，`/api/status` 检查 QQ 在线状态。
+
+## 可选外部 OneBot / Docker
+
+复制 `config/config.example.yaml` 为 `config/config.yaml`，填写 OneBot 地址、端口和 Token，使用 `runtime.mode: external`。外部模式不启动或停止远端 NapCat。
+
+`docker compose up -d --build` 仅部署 Val-Halla WebUI，不再捆绑旧版 go-cqhttp 示例和多余的 PostgreSQL。容器配置必须填写从容器可访问的 OneBot 地址；容器内 `127.0.0.1` 不是 Windows 主机。不要直接用本机原生模式配置启动容器部署。
+
+默认 SQLite；需要 PostgreSQL 时，安装 `requirements-postgres.txt` 并填写数据库配置。
+
+## 回退
+
+迁移前使用 SQLite backup API 保存数据库副本，并保留连接 YAML。`activate_native.py` 也会保存被替换的配置到 `work/before-native-*.yaml`。
+
+回退顺序：停止原生服务 → 恢复旧 YAML（外部模式）→ 启动旧 NapCat 容器 → 启动 Val-Halla WebUI。不要让同账号的两个 NapCat 实例同时运行。代码可以切回迁移前提交；Git 分支切换不会恢复或清空数据目录。
+
+本次迁移详情见 `docs/migration-20261027.md`。
+
+## 开发与测试
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q
+npm.cmd --prefix frontend ci --ignore-scripts
+npm.cmd --prefix frontend run build
 ```
 
-然后访问 http://localhost:8080
+Alpine 3.14.9、编译后的 Tailwind 3.4.17 已随代码保存在 `src/web/static/vendor/`；日常运行不依赖 CDN 或 Node 构建工具。测试使用临时数据库和模拟接口。
 
-## 注意事项
+Git 跟踪代码、依赖锁文件、构建结果和文档；忽略 `runtime/`、`work/`、真实配置、日志、数据库、导出和备份。
 
-1. **API 限制**: 
-   - OneBot 11 协议**不支持**邀请成员入群
-   - "重建"功能仅能恢复已在群内成员的信息
-   - 如需拉人，需要使用 QQ 客户端手动操作
-
-2. **权限要求**:
-   - Bot 需要是群主才能设置管理员
-   - Bot 需要是群主才能设置专属头衔
-   - 普通管理员可以设置群名片
-
-3. **恢复功能说明**:
-   - 恢复名片：将群成员的名片恢复为备份时的状态
-   - 恢复头衔：将专属头衔恢复为备份时的状态
-   - 恢复管理员：将备份中是管理员的成员重新设为管理员
-
-4. **数据安全**:
-   - 备份数据包含群成员QQ号等信息
-   - 建议妥善保管备份文件
-   - 默认启用 gzip 压缩
-
-## 依赖项
-
-主要 Python 依赖:
-- `requests` - HTTP 客户端
-- `sqlalchemy` - ORM
-- `aiosqlite` - SQLite 异步支持
-- `pydantic` - 数据验证
-- `pyyaml` - 配置文件解析
-- `fastapi` - Web 框架
-- `uvicorn` - ASGI 服务器
-- `jinja2` - 模板引擎
-- `click` - CLI 框架
-- `rich` - 终端美化
-
-## 协议支持
-
-### OneBot 11 标准
-- 完全兼容 OneBot 11 协议规范
-- 默认使用 WebSocket 通信
-- 同时支持 HTTP API 调用
-
-### 推荐实现
-1. **NapCatQQ**: 基于 NTQQ 的现代化实现
-2. **LLOneBot**: 轻量级 OneBot 实现
-
-## 贡献
-
-欢迎提交Issue和Pull Request!
-
-## 许可证
-
-MIT License
-
-## 致谢
-
-- [OneBot 标准](https://github.com/botuniverse/onebot-11)
-- [NapCatQQ](https://github.com/NapNeko/NapCatQQ)
-- [LLOneBot](https://github.com/LLOneBot/LLOneBot)
+MIT License.

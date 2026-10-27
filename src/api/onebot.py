@@ -49,6 +49,7 @@ class OneBotAPI:
         self.access_token = access_token
         self.timeout = timeout
         self.headers = {}
+        self._http_client = None
         
         if access_token:
             self.headers["Authorization"] = f"Bearer {access_token}"
@@ -96,10 +97,11 @@ class OneBotAPI:
         """通过 HTTP 调用 OneBot API"""
         url = f"{self.base_url}/{endpoint}"
 
-        async with httpx.AsyncClient(headers=self.headers, timeout=self.timeout) as client:
-            response = await client.post(url, json=params)
-            response.raise_for_status()
-            result = response.json()
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(headers=self.headers, timeout=self.timeout, trust_env=False)
+        response = await self._http_client.post(url, json=params)
+        response.raise_for_status()
+        result = response.json()
 
         return self._extract_result(endpoint, result)
 
@@ -121,18 +123,15 @@ class OneBotAPI:
         try:
             await websocket.send(json.dumps(payload))
 
-            while True:
-                raw_message = await asyncio.wait_for(websocket.recv(), timeout=self.timeout)
-
-                if isinstance(raw_message, bytes):
-                    raw_message = raw_message.decode("utf-8")
-
-                result = json.loads(raw_message)
-
-                if result.get("echo") != echo:
-                    continue
-
-                return self._extract_result(endpoint, result)
+            # A stream of unrelated events must not restart the request deadline.
+            async with asyncio.timeout(self.timeout):
+                while True:
+                    raw_message = await websocket.recv()
+                    if isinstance(raw_message, bytes):
+                        raw_message = raw_message.decode("utf-8")
+                    result = json.loads(raw_message)
+                    if result.get("echo") == echo:
+                        return self._extract_result(endpoint, result)
         except Exception as e:
             logger.error(f"WebSocket 调用异常: {endpoint} - {str(e)}")
             raise
@@ -142,17 +141,27 @@ class OneBotAPI:
     async def _connect_websocket(self):
         """建立 WebSocket 连接"""
         connect_kwargs = {"open_timeout": self.timeout}
+        # websockets >=15 otherwise inherits global proxy settings for localhost.
+        import inspect
+        if "proxy" in inspect.signature(websockets.connect).parameters:
+            connect_kwargs["proxy"] = None
         if self.headers:
             connect_kwargs["extra_headers"] = self.headers
 
         try:
             return await websockets.connect(self.ws_url, **connect_kwargs)
+
         except TypeError:
             if "extra_headers" not in connect_kwargs:
                 raise
 
             connect_kwargs["additional_headers"] = connect_kwargs.pop("extra_headers")
             return await websockets.connect(self.ws_url, **connect_kwargs)
+
+    async def close(self):
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
 
     def _extract_result(self, endpoint: str, result: Dict[str, Any]) -> Dict[str, Any]:
         """统一解析 OneBot API 响应"""

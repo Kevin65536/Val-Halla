@@ -1,0 +1,11 @@
+.git
+.venv
+runtime
+work
+data
+export
+secrets
+frontend/node_modules
+config/config.yaml
+**/__pycache__
+**/*.bak

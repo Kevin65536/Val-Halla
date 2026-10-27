@@ -4,7 +4,7 @@
 {% block page_title %}群组管理{% endblock %}
 
 {% block content %}
-<div x-data="groupsPage()" x-init="init()">
+<div x-data="groupsPage()">
     <!-- 搜索和筛选栏 -->
     <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
         <div class="flex flex-col md:flex-row gap-4">
@@ -249,6 +249,7 @@ function groupsPage() {
         },
         
         async init() {
+            window.addEventListener('connection-ready', () => this.loadGroups());
             await this.loadGroups();
             
             // 检查URL参数

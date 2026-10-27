@@ -4,7 +4,7 @@
 {% block page_title %}系统设置{% endblock %}
 
 {% block content %}
-<div x-data="settingsPage()" x-init="init()">
+<div x-data="settingsPage()">
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- OneBot 连接设置 -->
         <div class="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -76,7 +76,7 @@
                 </div>
                 <div class="flex justify-between py-2 border-b">
                     <span class="text-gray-500">版本</span>
-                    <span class="font-medium">1.0.0</span>
+                    <span class="font-medium">2.0.0</span>
                 </div>
                 <div class="flex justify-between py-2 border-b">
                     <span class="text-gray-500">数据库</span>
@@ -109,12 +109,12 @@
                     <span x-text="backingUp ? '备份中 (' + backupProgress + ')...' : '备份所有群组'"></span>
                 </button>
                 
-                <a href="/api/export/all" target="_blank"
+                <a href="/backups" target="_blank"
                    class="w-full py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition flex items-center justify-center gap-2">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                     </svg>
-                    导出所有数据
+                    查看与下载备份
                 </a>
             </div>
         </div>
@@ -139,7 +139,7 @@
                         </svg>
                     </div>
                     <h4 class="text-xl font-bold text-gray-800">Val-Halla</h4>
-                    <p class="text-gray-500 mt-1">QQ群成员自动备份与一键重建工具</p>
+                    <p class="text-gray-500 mt-1">QQ群成员备份与信息恢复工具</p>
                     <div class="mt-4 flex justify-center gap-4">
                         <a href="https://github.com/Kevin65536/Val-Halla" target="_blank" 
                            class="text-gray-400 hover:text-gray-600 transition">
@@ -172,15 +172,15 @@ function settingsPage() {
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
-                this.$root.status = data;
+                this.status = data;
                 
                 if (data.connected) {
-                    this.$root.showToast('连接成功！', 'success');
+                    this.showToast('连接成功！', 'success');
                 } else {
-                    this.$root.showToast('连接失败', 'error');
+                    this.showToast('连接失败', 'error');
                 }
             } catch (e) {
-                this.$root.showToast('连接测试失败: ' + e.message, 'error');
+                this.showToast('连接测试失败: ' + e.message, 'error');
             }
             this.testing = false;
         },
@@ -193,6 +193,7 @@ function settingsPage() {
                 // 获取群列表
                 const groupsRes = await fetch('/api/groups');
                 const groupsData = await groupsRes.json();
+                if (!groupsRes.ok) throw new Error(groupsData.detail || '获取群列表失败');
                 const groups = groupsData.groups || [];
                 
                 let success = 0;
@@ -203,11 +204,12 @@ function settingsPage() {
                     this.backupProgress = `${i + 1}/${groups.length}`;
                     
                     try {
-                        await fetch('/api/backup', {
+                        const backupResponse = await fetch('/api/backup', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ group_id: group.group_id, backup_type: 'full' })
                         });
+                        if (!backupResponse.ok) { const error = await backupResponse.json(); throw new Error(error.detail || '备份失败'); }
                         success++;
                     } catch (e) {
                         failed++;
@@ -217,9 +219,9 @@ function settingsPage() {
                     await new Promise(r => setTimeout(r, 500));
                 }
                 
-                this.$root.showToast(`备份完成！成功 ${success} 个，失败 ${failed} 个`, 'success');
+                this.showToast(`备份完成：成功 ${success} 个，失败 ${failed} 个`, failed ? 'warning' : 'success');
             } catch (e) {
-                this.$root.showToast('备份失败: ' + e.message, 'error');
+                this.showToast('备份失败: ' + e.message, 'error');
             }
             
             this.backingUp = false;

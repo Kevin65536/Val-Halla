@@ -3,6 +3,8 @@
 """
 import json
 import gzip
+import asyncio
+from filelock import FileLock, Timeout as FileLockTimeout
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -42,6 +44,8 @@ class BackupManager:
         self.backup_dir = Path(backup_dir)
         self.compression = compression
         self.encryption = encryption
+        if encryption:
+            raise ValueError("当前版本不支持备份加密，请关闭 encryption；不会生成伪加密文件。")
         
         # 确保备份目录存在
         self.backup_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +101,23 @@ class BackupManager:
             logger.error(f"同步群信息失败: {group_id} - {str(e)}")
             raise
     
-    async def backup_group(
+    async def backup_group(self, group_id: int, backup_type: BackupType = BackupType.FULL, notes: str = "") -> Backup:
+        """Serialize snapshots of one group, including simultaneous CLI and WebUI calls."""
+        if group_id <= 0:
+            raise ValueError("群号必须为正整数")
+        lock_dir = self.backup_dir / ".locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock = FileLock(str(lock_dir / f"{group_id}.lock"), timeout=0, thread_local=False)
+        try:
+            await asyncio.to_thread(lock.acquire)
+        except FileLockTimeout as error:
+            raise ValueError("该群正在备份，请等待当前备份完成。") from error
+        try:
+            return await self._backup_group(group_id, backup_type, notes)
+        finally:
+            lock.release()
+
+    async def _backup_group(
         self,
         group_id: int,
         backup_type: BackupType = BackupType.FULL,
@@ -130,6 +150,8 @@ class BackupManager:
             session.add(backup)
             await session.commit()
             await session.refresh(backup)
+            backup_id = backup.id
+            written_path = None
             
             try:
                 # 同步群信息
@@ -137,6 +159,11 @@ class BackupManager:
                 
                 # 获取群成员列表
                 members_data = await self.client.get_group_member_list(group_id, no_cache=True)
+                if not isinstance(members_data, list) or not members_data:
+                    raise ValueError("接口返回空成员列表，已中止备份，保留上一份成员数据。")
+                ids = [m.get("user_id") for m in members_data]
+                if any(not isinstance(uid, int) or uid <= 0 for uid in ids) or len(set(ids)) != len(ids):
+                    raise ValueError("接口返回无效或重复的成员编号，已中止备份。")
                 logger.info(f"获取到 {len(members_data)} 个成员")
                 
                 # 获取当前数据库中的成员
@@ -194,6 +221,7 @@ class BackupManager:
                 file_path, file_size = await self._save_backup_file(
                     backup.id, group_id, members_data
                 )
+                written_path = Path(file_path)
                 
                 # 更新备份记录
                 backup.status = BackupStatus.SUCCESS.value
@@ -232,7 +260,11 @@ class BackupManager:
                 return backup
                 
             except Exception as e:
-                # 更新备份状态为失败
+                # A failed snapshot must never commit partially replaced current members.
+                await session.rollback()
+                if written_path is not None:
+                    written_path.unlink(missing_ok=True)
+                backup = await session.get(Backup, backup_id)
                 backup.status = BackupStatus.FAILED.value
                 backup.error_message = str(e)
                 backup.completed_at = datetime.utcnow()
@@ -304,12 +336,16 @@ class BackupManager:
         json_data = json.dumps(backup_data, ensure_ascii=False, indent=2)
         
         # 保存文件
-        if self.compression:
-            with gzip.open(file_path, 'wt', encoding='utf-8') as f:
-                f.write(json_data)
-        else:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(json_data)
+        temporary = file_path.with_suffix(file_path.suffix + ".tmp")
+        try:
+            if self.compression:
+                with gzip.open(temporary, 'wt', encoding='utf-8') as f:
+                    f.write(json_data)
+            else:
+                temporary.write_text(json_data, encoding="utf-8")
+            temporary.replace(file_path)
+        finally:
+            temporary.unlink(missing_ok=True)
         
         file_size = file_path.stat().st_size
         logger.info(f"备份文件已保存: {file_path} ({file_size} bytes)")

@@ -83,11 +83,11 @@ Start.cmd → src.desktop
 
 默认 SQLite；需要 PostgreSQL 时，安装 `requirements-postgres.txt` 并填写数据库配置。
 
-## 回退
+## 迁移状态
 
-迁移前使用 SQLite backup API 保存数据库副本，并保留连接 YAML。`activate_native.py` 也会保存被替换的配置到 `work/before-native-*.yaml`。
+Windows 原生迁移已合并到 `main` 并推送远端。2026-10-27 按用户要求清理了旧 NapCat Docker 容器、关联账号与配置卷，以及旧运行镜像，不再维护旧 Docker 回退环境。
 
-回退顺序：停止原生服务 → 恢复旧 YAML（外部模式）→ 启动旧 NapCat 容器 → 启动 Val-Halla WebUI。不要让同账号的两个 NapCat 实例同时运行。代码可以切回迁移前提交；Git 分支切换不会恢复或清空数据目录。
+当前原生运行时、配置、数据库和群成员备份继续使用。Git 只记录代码；切换到历史提交不会恢复已删除的 Docker 容器或数据卷。
 
 本次迁移详情见 `docs/migration-20261027.md`。
 

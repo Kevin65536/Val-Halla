@@ -31,7 +31,7 @@
 
 二维码认证状态使用模拟管理接口验证；本机原生登录复用了有效会话，未人为退出账号以强制扫码。QQ 再次要求认证时仍需用户在手机端确认。可选 Docker 定义只作为外部部署入口整理，本次主验收对象是 Windows 原生流程。
 
-## 本机恢复材料
+## 迁移时保存的本机材料
 
 以下内容均在 Git 之外：
 
@@ -39,15 +39,14 @@
 - `work/migration-20261027/docker-config.yaml`：原先的 Docker 连接配置。
 - `work/before-native-*.yaml`：激活原生配置时另存的旧配置。
 - `work/migration-20261027/verification.json`：实际数据核对摘要。
-- 原有 Docker 容器及数据卷：已停止、未删除。
+- 以下 Docker 清理完成后，这些本地迁移记录仍保留；它们不构成可直接启动的 Docker 回退环境。
 
-## 回退操作
+## 主分支发布与旧 Docker 清理（2026-10-27）
 
-1. 运行 `Stop.cmd`。
-2. 保留当前 `config/config.yaml` 后，恢复 `work/migration-20261027/docker-config.yaml` 为 `config/config.yaml`。旧配置没有 `runtime` 段时会默认进入外部服务模式。
-3. 启动 Docker Desktop，再启动保留的 `valhalla-napcat-20261027` 容器，其宿主接口仍为 15700。
-4. 运行 `Start.cmd`：外部模式只启动 Val-Halla，不启动原生 NapCat。
+按用户要求推送迁移分支，并将 `main` 从 `2f694cc` 快进合并到 `08b4cf0` 后推送远端。用户明确不再考虑后续回退，因此删除：
 
-这会保留迁移后新增的备份，不需要恢复旧数据库。如果必须恢复数据库，应先保存当前数据库，并明确哪些新备份需要保留。
+- 容器：`valhalla-napcat-20261027`、`valhalla-napcat-20261027-qr`、`epic_lalande`。
+- 上述容器共用的两个旧数据卷：QQ 账号卷 `fdd736dc7bf6…`、NapCat 配置卷 `7645d5f6b140…`。
+- 镜像：`valhalla-napcat-preserved:20261027`、`mlikiowa/napcat-docker:latest`。
 
-代码回退可切换到迁移前标签（分离 HEAD）或从该标签新建分支；切换代码不会回退被 Git 忽略的配置和数据。不要直接覆盖同账号正在使用的 QQ 数据目录。
+清理后 Docker 容器列表为空；其他未关联的卷和镜像未清理。原生服务继续在线，当前数据库、群成员备份及原生账号数据未受影响。历史 Git 提交不会恢复已删除的 Docker 环境。
